@@ -19,6 +19,8 @@ import time
 import numpy as np
 import cv2
 
+from dataset import *
+
 # global variable
 best_pred = 100.0
 errlist_train = []
@@ -59,12 +61,29 @@ def main():
         torch.cuda.manual_seed(args.seed)
     # init dataloader
 
-    dataset = importlib.import_module('dataset.' + args.dataset)
-    Dataloder = dataset.Dataloder
+    # dataset = importlib.import_module('dataset.' + args.dataset)
+    # Dataloder = dataset.Dataloder
     # if args.eval:
     #    test_loader= Dataloder(args).gettestloader()
     # else:
-    train_loader, test_loader = Dataloder(args).getloader()
+
+    # LOAD THE COLOURS CATEGORIES
+    colours = np.load(args.colours, allow_pickle=True)[0]
+    num_colours = np.shape(colours)[0]
+
+    # DATA
+    print("Loading data...")
+    (x_train, y_train), (x_test, y_test) = load_cifar10()
+
+    # Transform data into UV channels:
+    print("Transforming data...")
+    train_rgb, train_grey = process(x_train, y_train, downsize_input = args.downsize_input)
+    train_rgb_cat = get_rgb_cat(train_rgb, colours)
+    test_rgb, test_grey = process(x_test, y_test, downsize_input = args.downsize_input)
+    test_rgb_cat = get_rgb_cat(test_rgb, colours)
+
+    # train_loader, test_loader = Dataloder(args).getloader()
+
     # init the model
     models = importlib.import_module('model.' + args.model)
     model = models.Net(args)
@@ -77,12 +96,6 @@ def main():
     else:
         raise Keyerror('Not implement!')
 
-    # criterion = FocalLoss(gamma=2, alpha=0.2, \
-    #                                  num_classes=2,
-    #                                  epsilon=0.1)
-
-    criterion_center = CenterLoss_5(num_classes=2, feat_dim=512
-                                    )
 
     optimizer = get_optimizer(args, model, False)
     if args.cuda:
@@ -112,63 +125,131 @@ def main():
         scheduler = LR_Scheduler(args, len(train_loader))
 
     def train(epoch):
-        model.train()
-        global best_pred, errlist_train
+        # global best_pred, errlist_train
         train_loss, correct, total = 0, 0, 0
         # adjust_learning_rate(optimizer, args, epoch, best_pred)
-        tbar = tqdm(train_loader, desc='\r')
+
 
         batch_idx_end = 0
+        model.train()
+        print("Beginning training ...")
+        start = time.time()
 
-        for batch_idx, (data, target, ids) in enumerate(tbar):
-            scheduler(optimizer, batch_idx, epoch, best_pred)
+        train_losses = []
+        valid_losses = []
+        valid_accs = []
+        for epoch in range(args.epochs):
+            # Train the Model
+            losses = []
+            for i, (xs, ys) in enumerate(get_batch(train_grey,
+                                                   train_rgb_cat,
+                                                   args.batch_size)):
+                images, labels = get_torch_vars(xs, ys, args.gpu)
+                # Forward + Backward + Optimize
+                optimizer.zero_grad()
+                outputs = model(images)
 
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
+                loss = compute_loss(criterion,
+                                    outputs,
+                                    labels,
+                                    batch_size=args.batch_size,
+                                    num_colours=num_colours)
+                loss.backward()
+                optimizer.step()
+                losses.append(loss.data.item())
 
-            data, target = Variable(data), Variable(target)
-            optimizer.zero_grad()
-            output, f, center_weight, softmax_out = model(data)
+        # plot training images
+        if args.plot:
+            _, predicted = torch.max(outputs.data, 1, keepdim=True)
+            plot(xs, ys, predicted.cpu().numpy(), colours,
+                 save_dir+'/train_%d.png' % epoch,
+                 args.visualize,
+                 args.downsize_input)
 
-            # May need Ohem later.
-            # Here leave it for future usage.
-            if args.ohem > -1:
-                if args.loss == 'CrossEntropyLoss':
-                    loss = nn.CrossEntropyLoss(reduce=False)(output, target).cpu().detach().numpy()
-                elif args.loss == 'CrossEntropyLabelSmooth':
-                    loss = CrossEntropyLabelSmooth(num_classes=args.nclass, reduce=False)(output, target).cpu().detach().numpy()
-                else:
-                    raise Keyerror('Not implement!')
-                loss_index = np.argsort(loss)
-                targets_copy = target.clone()
-                if args.nclass < 3:
-                    targets_copy[loss_index[0:args.ohem]] = -1
+        # plot training images
+        avg_loss = np.mean(losses)
+        train_losses.append(avg_loss)
+        time_elapsed = time.time() - start
+        print('Epoch [%d/%d], Loss: %.4f, Time (s): %d' % (
+            epoch+1, args.epochs, avg_loss, time_elapsed))
 
-            else:
-                targets_copy = target.clone()
+        # Evaluate the model
+        model.eval()  # Change model to 'eval' mode (BN uses moving mean/var).
+        val_loss, val_acc = run_validation_step(cnn,
+                                                criterion,
+                                                test_grey,
+                                                test_rgb_cat,
+                                                args.batch_size,
+                                                colours,
+                                                save_dir+'/test_%d.png' % epoch,
+                                                args.visualize,
+                                                args.downsize_input)
 
-            loss = criterion(output, targets_copy)
-            # print(output.shape)
-            # print(targets_copy.shape)
-            # center_loss = 0.0 * criterion_center(f, target, center_weight)
+        time_elapsed = time.time() - start
+        valid_losses.append(val_loss)
+        valid_accs.append(val_acc)
+        print('Epoch [%d/%d], Val Loss: %.4f, Val Acc: %.1f%%, Time(s): %.2f' % (
+            epoch+1, args.epochs, val_loss, val_acc, time_elapsed))
 
-            # loss = loss + center_loss
+        plot.figure()
+        plot.plot(train_losses, "ro-", label="Train")
+        plot.plot(valid_losses, "go-", label="Validation")
+        plot.legend()
+        plot.title("Loss")
+        plot.xlabel("Epochs")
+        plot.savefig(save_dir + "/training_curve.png")
 
-            loss.backward()
-            optimizer.step()
+        if args.checkpoint:
+            print('Saving model...')
+            torch.save(model.state_dict(), args.checkpoint)
 
-            train_loss += loss.data
-            pred = output.data.max(1)[1]
-            correct += pred.eq(target.data).cpu().sum()
-            total += target.size(0)
-            err = 100. - 100. * correct / total
-            tbar.set_description('\rLoss: %.3f | Err: %.3f%% (%d/%d)' % \
-                                 (train_loss / (batch_idx + 1), err, total - correct, total))
-            train_loss_end = train_loss
-            batch_idx_end = batch_idx
+        return model
 
-        print('\rLoss: %.3f | Err: %.3f%% (%d/%d)' % \
-              (train_loss / (batch_idx_end + 1), err, total - correct, total))
+        # tbar = tqdm(train_loader, desc='\r')
+        # for batch_idx, (data, target, ids) in enumerate(tbar):
+        #     scheduler(optimizer, batch_idx, epoch, best_pred)
+        #
+        #     if args.cuda:
+        #         data, target = data.cuda(), target.cuda()
+        #
+        #     data, target = Variable(data), Variable(target)
+        #     optimizer.zero_grad()
+        #     output, f, center_weight, softmax_out = model(data)
+        #
+        #     # May need Ohem later.
+        #     # Here leave it for future usage.
+        #     if args.ohem > -1:
+        #         if args.loss == 'CrossEntropyLoss':
+        #             loss = nn.CrossEntropyLoss(reduce=False)(output, target).cpu().detach().numpy()
+        #         elif args.loss == 'CrossEntropyLabelSmooth':
+        #             loss = CrossEntropyLabelSmooth(num_classes=args.nclass, reduce=False)(output, target).cpu().detach().numpy()
+        #         else:
+        #             raise Keyerror('Not implement!')
+        #         loss_index = np.argsort(loss)
+        #         targets_copy = target.clone()
+        #         if args.nclass < 3:
+        #             targets_copy[loss_index[0:args.ohem]] = -1
+        #
+        #     else:
+        #         targets_copy = target.clone()
+        #
+        #     loss = criterion(output, targets_copy)
+        #
+        #     loss.backward()
+        #     optimizer.step()
+        #
+        #     train_loss += loss.data
+        #     pred = output.data.max(1)[1]
+        #     correct += pred.eq(target.data).cpu().sum()
+        #     total += target.size(0)
+        #     err = 100. - 100. * correct / total
+        #     tbar.set_description('\rLoss: %.3f | Err: %.3f%% (%d/%d)' % \
+        #                          (train_loss / (batch_idx + 1), err, total - correct, total))
+        #     train_loss_end = train_loss
+        #     batch_idx_end = batch_idx
+        #
+        # print('\rLoss: %.3f | Err: %.3f%% (%d/%d)' % \
+        #       (train_loss / (batch_idx_end + 1), err, total - correct, total))
 
     # Place holder
     # Test function has not been implemented. Wait for later finishing
