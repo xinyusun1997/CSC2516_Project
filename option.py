@@ -85,7 +85,12 @@ class Options():
                             help='')
         parser.add_argument('--metric', type=str, default='',
                             help='arc_margin')
-
+        parser.add_argument('--experiment_name', type=str, default='default_experiment',
+                            help='experiment_name')
+        parser.add_argument('--downsize_input', action='store_true', default= False,
+            help='downsize_input')
+        parser.add_argument('--colours', type=str, default='./data/colours/colour_kmeans24_cat7.npy',
+                            help='colours categories path')
         self.parser = parser
 
     def parse(self):

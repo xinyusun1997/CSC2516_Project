@@ -512,3 +512,4 @@ def run_validation_step(cnn, criterion, test_grey, test_rgb_cat, batch_size,
     val_loss = np.mean(losses)
     val_acc = 100 * correct / total
     return val_loss, val_acc
+

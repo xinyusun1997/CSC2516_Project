@@ -12,13 +12,13 @@ from torch.autograd import Variable
 
 from option import Options
 from utils import *
-from utils import CrossEntropyLabelSmooth
+from utils import CrossEntropyLabelSmooth, get_torch_vars, compute_loss, run_validation_step
 from tqdm import tqdm
 from PIL import Image
 import time
 import numpy as np
 import cv2
-
+from models import UNet
 from dataset import *
 
 # global variable
@@ -36,19 +36,18 @@ def main():
 
     args.plot = False
     args.dataset = 'data'
-    args.model = 'deepten'
+    args.model = 'UNet'
     args.batch_size = 128  # 128 #32
-    args.loss = 'CrossEntropyLabelSmooth'
+    args.loss = 'CrossEntropyLoss'
     args.backbone = 'resnet18'
 
     args.lr = 0.001  # 0.004  #0.01 #
-    args.epochs = 60  # 60#20 #60
+    args.epochs = 5  # 60#20 #60
     args.lr_step = 15
     args.test_aug = False
     args.nclass = 24
     args.ohem = -2
     args.atte = False
-    args.mixup = False
     args.basepath = './'
 
     # plot
@@ -61,21 +60,21 @@ def main():
         torch.cuda.manual_seed(args.seed)
     # init dataloader
 
-    # dataset = importlib.import_module('dataset.' + args.dataset)
-    # Dataloder = dataset.Dataloder
-    # if args.eval:
-    #    test_loader= Dataloder(args).gettestloader()
-    # else:
+    # get dataset
+    colours_fpath = get_file(fname='colours',
+                             origin='http://www.cs.toronto.edu/~jba/kmeans_colour_a2.tar.gz',
+                             untar=True)
 
     # LOAD THE COLOURS CATEGORIES
     colours = np.load(args.colours, allow_pickle=True)[0]
     num_colours = np.shape(colours)[0]
 
+
     # DATA
     print("Loading data...")
     (x_train, y_train), (x_test, y_test) = load_cifar10()
 
-    # Transform data into UV channels:
+    # Transform data into rgb:
     print("Transforming data...")
     train_rgb, train_grey = process(x_train, y_train, downsize_input = args.downsize_input)
     train_rgb_cat = get_rgb_cat(train_rgb, colours)
@@ -85,61 +84,66 @@ def main():
     # train_loader, test_loader = Dataloder(args).getloader()
 
     # init the model
-    models = importlib.import_module('model.' + args.model)
-    model = models.Net(args)
+    if args.model == 'UNet':
+        model = UNet(args.kernel, args.num_filters, num_colours, 1)
     # print(model)
 
     if args.loss == 'CrossEntropyLoss':
         criterion = nn.CrossEntropyLoss(ignore_index=-1)
     elif args.loss == 'CrossEntropyLabelSmooth':
         criterion = CrossEntropyLabelSmooth(num_classes=args.nclass, ignore_index=-1)
-    else:
-        raise Keyerror('Not implement!')
 
 
-    optimizer = get_optimizer(args, model, False)
-    if args.cuda:
-        model.cuda()
-        model = torch.nn.DataParallel(model)
-    # check point
 
-    if args.resume is not None:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint['epoch'] + 1
-            best_pred = checkpoint['best_pred']
-            # errlist_train = checkpoint['errlist_train']
-            # errlist_val = checkpoint['errlist_val']
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
-            for name, param in checkpoint['state_dict'].items():
-                print(name)
-        else:
-            print("=> no resume checkpoint found at '{}'". \
-                  format(args.resume))
+    # optimizer = get_optimizer(args, model, False)
+    # if args.cuda:
+    #     model.cuda()
+    #     model = torch.nn.DataParallel(model)
+    # # check point
+    #
+    # if args.resume is not None:
+    #     if os.path.isfile(args.resume):
+    #         print("=> loading checkpoint '{}'".format(args.resume))
+    #         checkpoint = torch.load(args.resume)
+    #         args.start_epoch = checkpoint['epoch'] + 1
+    #         best_pred = checkpoint['best_pred']
+    #         # errlist_train = checkpoint['errlist_train']
+    #         # errlist_val = checkpoint['errlist_val']
+    #         model.load_state_dict(checkpoint['state_dict'])
+    #         optimizer.load_state_dict(checkpoint['optimizer'])
+    #         print("=> loaded checkpoint '{}' (epoch {})"
+    #               .format(args.resume, checkpoint['epoch']))
+    #         for name, param in checkpoint['state_dict'].items():
+    #             print(name)
+    #     else:
+    #         print("=> no resume checkpoint found at '{}'". \
+    #               format(args.resume))
+    #
+    # if args.eval == False:
+    #     scheduler = LR_Scheduler(args, len(train_loader))
 
-    if args.eval == False:
-        scheduler = LR_Scheduler(args, len(train_loader))
 
     def train(epoch):
-        # global best_pred, errlist_train
-        train_loss, correct, total = 0, 0, 0
-        # adjust_learning_rate(optimizer, args, epoch, best_pred)
-
-
-        batch_idx_end = 0
         model.train()
         print("Beginning training ...")
         start = time.time()
 
+        num_in_channels = 1 if not args.downsize_input else 3
+
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+        save_dir = "outputs/" + args.experiment_name
+        # Create the outputs folder if not created already
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        print("Beginning training ...")
+        start = time.time()
         train_losses = []
         valid_losses = []
         valid_accs = []
         for epoch in range(args.epochs):
-            # Train the Model
             losses = []
             for i, (xs, ys) in enumerate(get_batch(train_grey,
                                                    train_rgb_cat,
@@ -157,25 +161,18 @@ def main():
                 loss.backward()
                 optimizer.step()
                 losses.append(loss.data.item())
-
-        # plot training images
         if args.plot:
             _, predicted = torch.max(outputs.data, 1, keepdim=True)
             plot(xs, ys, predicted.cpu().numpy(), colours,
                  save_dir+'/train_%d.png' % epoch,
                  args.visualize,
                  args.downsize_input)
-
-        # plot training images
         avg_loss = np.mean(losses)
         train_losses.append(avg_loss)
         time_elapsed = time.time() - start
-        print('Epoch [%d/%d], Loss: %.4f, Time (s): %d' % (
-            epoch+1, args.epochs, avg_loss, time_elapsed))
-
-        # Evaluate the model
+        print('Epoch [%d/%d], Loss: %.4f, Time (s): %d' % (epoch+1, args.epochs, avg_loss, time_elapsed))
         model.eval()  # Change model to 'eval' mode (BN uses moving mean/var).
-        val_loss, val_acc = run_validation_step(cnn,
+        val_loss, val_acc = run_validation_step(model,
                                                 criterion,
                                                 test_grey,
                                                 test_rgb_cat,
@@ -188,8 +185,7 @@ def main():
         time_elapsed = time.time() - start
         valid_losses.append(val_loss)
         valid_accs.append(val_acc)
-        print('Epoch [%d/%d], Val Loss: %.4f, Val Acc: %.1f%%, Time(s): %.2f' % (
-            epoch+1, args.epochs, val_loss, val_acc, time_elapsed))
+        print('Epoch [%d/%d], Val Loss: %.4f, Val Acc: %.1f%%, Time(s): %.2f' % (epoch+1, args.epochs, val_loss, val_acc, time_elapsed))
 
         plot.figure()
         plot.plot(train_losses, "ro-", label="Train")
@@ -204,6 +200,76 @@ def main():
             torch.save(model.state_dict(), args.checkpoint)
 
         return model
+    #
+    #     train_losses = []
+    #     valid_losses = []
+    #     valid_accs = []
+    #     for epoch in range(args.epochs):
+    #         # Train the Model
+    #         losses = []
+    #         for i, (xs, ys) in enumerate(get_batch(train_grey,
+    #                                                train_rgb_cat,
+    #                                                args.batch_size)):
+    #             images, labels = get_torch_vars(xs, ys, args.gpu)
+    #             # Forward + Backward + Optimize
+    #             optimizer.zero_grad()
+    #             outputs = model(images)
+    #
+    #             loss = compute_loss(criterion,
+    #                                 outputs,
+    #                                 labels,
+    #                                 batch_size=args.batch_size,
+    #                                 num_colours=num_colours)
+    #             loss.backward()
+    #             optimizer.step()
+    #             losses.append(loss.data.item())
+    #
+    #     # plot training images
+    #     if args.plot:
+    #         _, predicted = torch.max(outputs.data, 1, keepdim=True)
+    #         plot(xs, ys, predicted.cpu().numpy(), colours,
+    #              save_dir+'/train_%d.png' % epoch,
+    #              args.visualize,
+    #              args.downsize_input)
+    #
+    #     # plot training images
+    #     avg_loss = np.mean(losses)
+    #     train_losses.append(avg_loss)
+    #     time_elapsed = time.time() - start
+    #     print('Epoch [%d/%d], Loss: %.4f, Time (s): %d' % (
+    #         epoch+1, args.epochs, avg_loss, time_elapsed))
+    #
+    #     # Evaluate the model
+    #     model.eval()  # Change model to 'eval' mode (BN uses moving mean/var).
+    #     val_loss, val_acc = run_validation_step(cnn,
+    #                                             criterion,
+    #                                             test_grey,
+    #                                             test_rgb_cat,
+    #                                             args.batch_size,
+    #                                             colours,
+    #                                             save_dir+'/test_%d.png' % epoch,
+    #                                             args.visualize,
+    #                                             args.downsize_input)
+    #
+    #     time_elapsed = time.time() - start
+    #     valid_losses.append(val_loss)
+    #     valid_accs.append(val_acc)
+    #     print('Epoch [%d/%d], Val Loss: %.4f, Val Acc: %.1f%%, Time(s): %.2f' % (
+    #         epoch+1, args.epochs, val_loss, val_acc, time_elapsed))
+    #
+    #     plot.figure()
+    #     plot.plot(train_losses, "ro-", label="Train")
+    #     plot.plot(valid_losses, "go-", label="Validation")
+    #     plot.legend()
+    #     plot.title("Loss")
+    #     plot.xlabel("Epochs")
+    #     plot.savefig(save_dir + "/training_curve.png")
+    #
+    #     if args.checkpoint:
+    #         print('Saving model...')
+    #         torch.save(model.state_dict(), args.checkpoint)
+    #
+    #     return model
 
         # tbar = tqdm(train_loader, desc='\r')
         # for batch_idx, (data, target, ids) in enumerate(tbar):
@@ -254,27 +320,27 @@ def main():
     # Place holder
     # Test function has not been implemented. Wait for later finishing
     # Here only leave a skeleton code.
-    def test(epoch):
-        model.eval()
-        global best_pred, errlist_train, errlist_val
-        test_loss, correct, total = 0, 0, 0
-        is_best = False
-        tbar = tqdm(test_loader, desc='\r')
-
-        batch_idx_end = 0
-
-        TP = 0
-        FN = 0
-        FP = 0
-        TN = 0
-
-        with torch.no_grad():
-            for batch_idx, (data, target, ids) in enumerate(tbar):
-                if args.cuda:
-                    data, target = data.cuda(), target.cuda()
-                data, target = Variable(data, volatile=True), Variable(target)
-                placeholder = model(data)
-                test_loss += 0  # criterion(output, target).data
+    # def test(epoch):
+    #     model.eval()
+    #     global best_pred, errlist_train, errlist_val
+    #     test_loss, correct, total = 0, 0, 0
+    #     is_best = False
+    #     tbar = tqdm(test_loader, desc='\r')
+    #
+    #     batch_idx_end = 0
+    #
+    #     TP = 0
+    #     FN = 0
+    #     FP = 0
+    #     TN = 0
+    #
+    #     with torch.no_grad():
+    #         for batch_idx, (data, target, ids) in enumerate(tbar):
+    #             if args.cuda:
+    #                 data, target = data.cuda(), target.cuda()
+    #             data, target = Variable(data, volatile=True), Variable(target)
+    #             placeholder = model(data)
+    #             test_loss += 0  # criterion(output, target).data
 
                 # pred = output.data.max(1)[1]
                 #
@@ -328,23 +394,23 @@ def main():
     #         plot.draw()
     #         plot.pause(0.001)
     #
-    if args.eval:
-        test(args.start_epoch)
-        return
-
-    for epoch in range(args.start_epoch, args.epochs + 1):
-        train(epoch)
-        test(epoch)
-
-    # save train_val curve to a file
-    if args.plot:
-        plot.clf()
-        plot.xlabel('Epoches: ')
-        plot.ylabel('Error Rate: %')
-        plot.plot(errlist_train, label='train')
-        plot.plot(errlist_val, label='val')
-        plot.savefig("%s/runs/%s/%s/%s/" % (args.basepath, args.dataset, args.model, args.checkname)
-                     + 'train_val.jpg')
+    # if args.eval:
+    #     test(args.start_epoch)
+    #     return
+    #
+    # for epoch in range(args.start_epoch, args.epochs + 1):
+    #     train(epoch)
+    #     test(epoch)
+    #
+    # # save train_val curve to a file
+    # if args.plot:
+    #     plot.clf()
+    #     plot.xlabel('Epoches: ')
+    #     plot.ylabel('Error Rate: %')
+    #     plot.plot(errlist_train, label='train')
+    #     plot.plot(errlist_val, label='val')
+    #     plot.savefig("%s/runs/%s/%s/%s/" % (args.basepath, args.dataset, args.model, args.checkname)
+    #                  + 'train_val.jpg')
 
 if __name__ == "__main__":
     main()
