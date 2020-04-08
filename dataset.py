@@ -9,9 +9,32 @@ from keras.utils.data_utils import _extract_archive
 from six.moves.urllib.request import urlretrieve
 import tarfile
 import numpy as np
+import numpy.random as npr
 import pickle
 import sys
 from PIL import Image
+
+def process(xs, ys, max_pixel=256.0):
+    """
+    Pre-process CIFAR10 images
+    Change inmages into HSV space
+
+    Args:
+      xs: the colour RGB pixel values
+      ys: the category labels
+      max_pixel: maximum pixel value in the original data
+    Returns:
+      xs: value normalized and shuffled colour images
+      grey: greyscale images, also normalized so values are between 0 and 1
+    """
+    xs = xs / max_pixel
+    xs = xs[np.where(ys == 7)[0], :, :, :]
+    npr.shuffle(xs)
+
+    grey = np.mean(xs, axis=1, keepdims=True)
+
+    return (xs, grey)
+
 
 def get_file(fname, origin, untar=False, extract=False, archive_format='auto', cache_dir='data'):
     datadir = os.path.join(cache_dir)
@@ -170,37 +193,6 @@ def get_cat_rgb(cats, colours):
     return colours[cats]
 
 
-def process(xs, ys, max_pixel=256.0, downsize_input=False):
-    """
-    Pre-process CIFAR10 images by taking only the horse category,
-    shuffling, and have colour values be bound between 0 and 1
-
-    Args:
-      xs: the colour RGB pixel values
-      ys: the category labels
-      max_pixel: maximum pixel value in the original data
-    Returns:
-      xs: value normalized and shuffled colour images
-      grey: greyscale images, also normalized so values are between 0 and 1
-    """
-    xs = xs / max_pixel
-    xs = xs[np.where(ys == HORSE_CATEGORY)[0], :, :, :]
-    npr.shuffle(xs)
-
-    grey = np.mean(xs, axis=1, keepdims=True)
-
-    if downsize_input:
-        downsize_module = nn.Sequential(nn.AvgPool2d(2),
-                                        nn.AvgPool2d(2),
-                                        nn.Upsample(scale_factor=2),
-                                        nn.Upsample(scale_factor=2))
-        xs_downsized = downsize_module.forward(torch.from_numpy(xs).float())
-        xs_downsized = xs_downsized.data.numpy()
-        return (xs, xs_downsized)
-    else:
-        return (xs, grey)
-
-
 def get_batch(x, y, batch_size):
     '''
     Generated that yields batches of data
@@ -219,3 +211,5 @@ def get_batch(x, y, batch_size):
         batch_x = x[i:i + batch_size, :, :, :]
         batch_y = y[i:i + batch_size, :, :, :]
         yield (batch_x, batch_y)
+
+

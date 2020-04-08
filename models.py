@@ -85,3 +85,26 @@ class UNet(nn.Module):
         self.output = self.final_layer(torch.cat((x, self.hidden_5), 1))
         return self.output
         ###################################################
+
+class simple(nn.Module):
+    def __init__(self, num_classes=10):
+        super(simple, self).__init__()
+        self.layer1 = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 32, kernel_size=3, padding=1),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(32),
+            # torch.nn.MaxPool2d(kernel_size=2)
+        )
+        self.layer2 = torch.nn.Sequential(
+            torch.nn.Conv2d(32, 8, kernel_size=3, padding=1),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(8),
+            # torch.nn.MaxPool2d(kernel_size=2)
+        )
+        self.layer3 = torch.nn.Conv2d(8, 3, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        return x

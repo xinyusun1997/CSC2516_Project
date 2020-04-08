@@ -11,15 +11,16 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 from option import Options
-from utils import *
-from utils import CrossEntropyLabelSmooth, get_torch_vars, compute_loss, run_validation_step
+from utils import get_torch_vars, compute_loss # run_validation_step
+from loss import CrossEntropyLabelSmooth
 from tqdm import tqdm
 from PIL import Image
 import time
 import numpy as np
 import cv2
-from models import UNet
+from models import UNet, simple
 from dataset import *
+import pickle
 
 # global variable
 best_pred = 100.0
@@ -58,40 +59,32 @@ def main():
 
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
-    # init dataloader
 
-    # get dataset
-    colours_fpath = get_file(fname='colours',
-                             origin='http://www.cs.toronto.edu/~jba/kmeans_colour_a2.tar.gz',
-                             untar=True)
-
-    # LOAD THE COLOURS CATEGORIES
-    colours = np.load(args.colours, allow_pickle=True)[0]
-    num_colours = np.shape(colours)[0]
-
-
-    # DATA
+    # IMAGE DATA
     print("Loading data...")
     (x_train, y_train), (x_test, y_test) = load_cifar10()
-
     # Transform data into rgb:
     print("Transforming data...")
-    train_rgb, train_grey = process(x_train, y_train, downsize_input = args.downsize_input)
-    train_rgb_cat = get_rgb_cat(train_rgb, colours)
-    test_rgb, test_grey = process(x_test, y_test, downsize_input = args.downsize_input)
-    test_rgb_cat = get_rgb_cat(test_rgb, colours)
+    train_rgb, train_grey = process(x_train, y_train)
+    print(train_rgb.shape)
+    print(train_grey.shape)
+
+    # train_rgb_cat = get_rgb_cat(train_rgb, colours)
+    test_rgb, test_grey = process(x_test, y_test)
+    # test_rgb_cat = get_rgb_cat(test_rgb, colours)
 
     # train_loader, test_loader = Dataloder(args).getloader()
 
     # init the model
     if args.model == 'UNet':
-        model = UNet(args.kernel, args.num_filters, num_colours, 1)
+        model = simple()
     # print(model)
 
     if args.loss == 'CrossEntropyLoss':
         criterion = nn.CrossEntropyLoss(ignore_index=-1)
     elif args.loss == 'CrossEntropyLabelSmooth':
         criterion = CrossEntropyLabelSmooth(num_classes=args.nclass, ignore_index=-1)
+    criterion = nn.MSELoss()
 
 
 
@@ -122,84 +115,101 @@ def main():
     # if args.eval == False:
     #     scheduler = LR_Scheduler(args, len(train_loader))
 
-
-    def train(epoch):
+    def train():
         model.train()
+        model.cuda()
         print("Beginning training ...")
         start = time.time()
 
         num_in_channels = 1 if not args.downsize_input else 3
-
-        criterion = nn.CrossEntropyLoss()
+    #
+    #     criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-
-        save_dir = "outputs/" + args.experiment_name
-        # Create the outputs folder if not created already
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-
-        print("Beginning training ...")
-        start = time.time()
-        train_losses = []
-        valid_losses = []
-        valid_accs = []
         for epoch in range(args.epochs):
-            losses = []
-            for i, (xs, ys) in enumerate(get_batch(train_grey,
-                                                   train_rgb_cat,
-                                                   args.batch_size)):
-                images, labels = get_torch_vars(xs, ys, args.gpu)
-                # Forward + Backward + Optimize
+            train_loss = 0.
+            valid_loss = 0.
+            for i in range(0, train_rgb.shape[0], args.batch_size):
+                batch_rgb = torch.autograd.Variable(torch.from_numpy(train_rgb[i:i+args.batch_size]).float().cuda(), requires_grad = False)
+                batch_grey = torch.autograd.Variable(torch.from_numpy(train_grey[i:i+args.batch_size]).float().cuda(), requires_grad = False)
                 optimizer.zero_grad()
-                outputs = model(images)
-
-                loss = compute_loss(criterion,
-                                    outputs,
-                                    labels,
-                                    batch_size=args.batch_size,
-                                    num_colours=num_colours)
+                batch_output = model(batch_grey)
+                loss = criterion(batch_output, batch_rgb)
                 loss.backward()
                 optimizer.step()
-                losses.append(loss.data.item())
-        if args.plot:
-            _, predicted = torch.max(outputs.data, 1, keepdim=True)
-            plot(xs, ys, predicted.cpu().numpy(), colours,
-                 save_dir+'/train_%d.png' % epoch,
-                 args.visualize,
-                 args.downsize_input)
-        avg_loss = np.mean(losses)
-        train_losses.append(avg_loss)
-        time_elapsed = time.time() - start
-        print('Epoch [%d/%d], Loss: %.4f, Time (s): %d' % (epoch+1, args.epochs, avg_loss, time_elapsed))
-        model.eval()  # Change model to 'eval' mode (BN uses moving mean/var).
-        val_loss, val_acc = run_validation_step(model,
-                                                criterion,
-                                                test_grey,
-                                                test_rgb_cat,
-                                                args.batch_size,
-                                                colours,
-                                                save_dir+'/test_%d.png' % epoch,
-                                                args.visualize,
-                                                args.downsize_input)
+                train_loss += loss.item()
 
-        time_elapsed = time.time() - start
-        valid_losses.append(val_loss)
-        valid_accs.append(val_acc)
-        print('Epoch [%d/%d], Val Loss: %.4f, Val Acc: %.1f%%, Time(s): %.2f' % (epoch+1, args.epochs, val_loss, val_acc, time_elapsed))
-
-        plot.figure()
-        plot.plot(train_losses, "ro-", label="Train")
-        plot.plot(valid_losses, "go-", label="Validation")
-        plot.legend()
-        plot.title("Loss")
-        plot.xlabel("Epochs")
-        plot.savefig(save_dir + "/training_curve.png")
-
-        if args.checkpoint:
-            print('Saving model...')
-            torch.save(model.state_dict(), args.checkpoint)
-
+                print("This epoch loss is ", loss.item())
         return model
+    train()
+    #
+    #     save_dir = "outputs/" + args.experiment_name
+    #     # Create the outputs folder if not created already
+    #     if not os.path.exists(save_dir):
+    #         os.makedirs(save_dir)
+    #
+    #     print("Beginning training ...")
+    #     start = time.time()
+    #     train_losses = []
+    #     valid_losses = []
+    #     valid_accs = []
+    #     for epoch in range(args.epochs):
+    #         losses = []
+    #         for i, (xs, ys) in enumerate(get_batch(train_grey,
+    #                                                train_rgb_cat,
+    #                                                args.batch_size)):
+    #             images, labels = get_torch_vars(xs, ys, args.gpu)
+    #             # Forward + Backward + Optimize
+    #             optimizer.zero_grad()
+    #             outputs = model(images)
+    #
+    #             loss = compute_loss(criterion,
+    #                                 outputs,
+    #                                 labels,
+    #                                 batch_size=args.batch_size,
+    #                                 num_colours=num_colours)
+    #             loss.backward()
+    #             optimizer.step()
+    #             losses.append(loss.data.item())
+    #     if args.plot:
+    #         _, predicted = torch.max(outputs.data, 1, keepdim=True)
+    #         plot(xs, ys, predicted.cpu().numpy(), colours,
+    #              save_dir+'/train_%d.png' % epoch,
+    #              args.visualize,
+    #              args.downsize_input)
+    #     avg_loss = np.mean(losses)
+    #     train_losses.append(avg_loss)
+    #     time_elapsed = time.time() - start
+    #     print('Epoch [%d/%d], Loss: %.4f, Time (s): %d' % (epoch+1, args.epochs, avg_loss, time_elapsed))
+    #     model.eval()  # Change model to 'eval' mode (BN uses moving mean/var).
+    #     val_loss, val_acc = run_validation_step(model,
+    #                                             criterion,
+    #                                             test_grey,
+    #                                             test_rgb_cat,
+    #                                             args.batch_size,
+    #                                             colours,
+    #                                             save_dir+'/test_%d.png' % epoch,
+    #                                             args.visualize,
+    #                                             args.downsize_input)
+    #
+    #     time_elapsed = time.time() - start
+    #     valid_losses.append(val_loss)
+    #     valid_accs.append(val_acc)
+    #     print('Epoch [%d/%d], Val Loss: %.4f, Val Acc: %.1f%%, Time(s): %.2f' % (epoch+1, args.epochs, val_loss, val_acc, time_elapsed))
+    #
+    #     plot.figure()
+    #     plot.plot(train_losses, "ro-", label="Train")
+    #     plot.plot(valid_losses, "go-", label="Validation")
+    #     plot.legend()
+    #     plot.title("Loss")
+    #     plot.xlabel("Epochs")
+    #     plot.savefig(save_dir + "/training_curve.png")
+    #
+    #     if args.checkpoint:
+    #         print('Saving model...')
+    #         torch.save(model.state_dict(), args.checkpoint)
+    #
+    #     return model
+    # train()
     #
     #     train_losses = []
     #     valid_losses = []
@@ -411,6 +421,5 @@ def main():
     #     plot.plot(errlist_val, label='val')
     #     plot.savefig("%s/runs/%s/%s/%s/" % (args.basepath, args.dataset, args.model, args.checkname)
     #                  + 'train_val.jpg')
-
 if __name__ == "__main__":
     main()
