@@ -35,27 +35,31 @@ def process(xs, ys, max_pixel=256.0):
 
     return (xs, grey)
 
-def cvt2lab(rgb_data, classification=False):
+def cvt2lab(rgb_data, classification=False, num_class=50):
     npr.shuffle(rgb_data)
     # Change the order to make it suitable for LUV conversion
     rgb_data = np.rollaxis(rgb_data, 1, 4)
     LUV = np.empty(rgb_data.shape)
+    if classification:
+        a_onehot = np.empty((*rgb_data.shape[0:3], num_class))
+        b_onehot = np.empty((*rgb_data.shape[0:3], num_class))
     for i in range(LUV.shape[0]):
         temp_rgb = rgb_data[i]
         temp_lab = color.rgb2lab(temp_rgb)
         temp_lab[:,:,1:] += 128
-        # if classification:
-        #     temp_lab[:, :, 1] = np.floor(temp_lab[:, :, 1] / 5)
-        #     temp_lab[:, :, 2] = np.floor(temp_lab[:, :, 2] / 5)
-        #     for i in range(temp_lab.shape[0]):
-        #         for j in range(temp_lab.shape[1]):
-        #             temp_temp = np.zeros(50)
-        #             temp_lab[i, j] = np.put(temp_temp, temp_lab[i,j,1], 1)
-        #     temp_lab[:,:,1] = np.floor(temp_lab[:,:,1]/5)
-        #     temp_lab[:,:,2]
-        LUV[i] = temp_lab
+        if classification:
+            temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / 5)
+            for m in range(temp_lab.shape[0]):
+                for n in range(temp_lab.shape[1]):
+                    a_onehot[i, m, n] = np.eye(50)[np.int(temp_lab[m, n, 1])]
+                    b_onehot[i, m, n] = np.eye(50)[np.int(temp_lab[m, n, 2])]
+        else:
+            LUV[i] = temp_lab
 
-    return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
+    if classification:
+        return np.expand_dims(LUV[:,:,:,0], axis=1), (np.rollaxis(a_onehot, 3, 1), np.rollaxis(b_onehot, 3, 1))
+    else:
+        return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
 
 def cvt2RGB():
     pass

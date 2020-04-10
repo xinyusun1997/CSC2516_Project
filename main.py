@@ -66,9 +66,10 @@ def main():
     print(x_train.shape)
     # Transform data into rgb:
     print("Transforming RGB data into Lab color space")
-    train_L, train_ab = cvt2lab(x_train, classification=True)
+    train_L, train_ab = cvt2lab(x_train, classification=True, num_class=50)
+    print(train_ab[0].shape)
     print(train_L.shape)
-    print(train_ab.shape)
+    # print(train_ab.shape)
 
     # train_rgb_cat = get_rgb_cat(train_rgb, colours)
     test_rgb, test_grey = process(x_test, y_test)
