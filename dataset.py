@@ -13,7 +13,7 @@ import numpy.random as npr
 import pickle
 import sys
 from PIL import Image
-
+from skimage import color
 def process(xs, ys, max_pixel=256.0):
     """
     Pre-process CIFAR10 images
@@ -35,7 +35,30 @@ def process(xs, ys, max_pixel=256.0):
 
     return (xs, grey)
 
+def cvt2lab(rgb_data, classification=False):
+    npr.shuffle(rgb_data)
+    # Change the order to make it suitable for LUV conversion
+    rgb_data = np.rollaxis(rgb_data, 1, 4)
+    LUV = np.empty(rgb_data.shape)
+    for i in range(LUV.shape[0]):
+        temp_rgb = rgb_data[i]
+        temp_lab = color.rgb2lab(temp_rgb)
+        temp_lab[:,:,1:] += 128
+        # if classification:
+        #     temp_lab[:, :, 1] = np.floor(temp_lab[:, :, 1] / 5)
+        #     temp_lab[:, :, 2] = np.floor(temp_lab[:, :, 2] / 5)
+        #     for i in range(temp_lab.shape[0]):
+        #         for j in range(temp_lab.shape[1]):
+        #             temp_temp = np.zeros(50)
+        #             temp_lab[i, j] = np.put(temp_temp, temp_lab[i,j,1], 1)
+        #     temp_lab[:,:,1] = np.floor(temp_lab[:,:,1]/5)
+        #     temp_lab[:,:,2]
+        LUV[i] = temp_lab
 
+    return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
+
+def cvt2RGB():
+    pass
 def get_file(fname, origin, untar=False, extract=False, archive_format='auto', cache_dir='data'):
     datadir = os.path.join(cache_dir)
     if not os.path.exists(datadir):

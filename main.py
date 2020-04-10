@@ -63,11 +63,12 @@ def main():
     # IMAGE DATA
     print("Loading data...")
     (x_train, y_train), (x_test, y_test) = load_cifar10()
+    print(x_train.shape)
     # Transform data into rgb:
-    print("Transforming data...")
-    train_rgb, train_grey = process(x_train, y_train)
-    print(train_rgb.shape)
-    print(train_grey.shape)
+    print("Transforming RGB data into Lab color space")
+    train_L, train_ab = cvt2lab(x_train, classification=True)
+    print(train_L.shape)
+    print(train_ab.shape)
 
     # train_rgb_cat = get_rgb_cat(train_rgb, colours)
     test_rgb, test_grey = process(x_test, y_test)
@@ -140,7 +141,7 @@ def main():
 
                 print("This epoch loss is ", loss.item())
         return model
-    train()
+    # train()
     #
     #     save_dir = "outputs/" + args.experiment_name
     #     # Create the outputs folder if not created already
