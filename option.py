@@ -91,6 +91,10 @@ class Options():
             help='downsize_input')
         parser.add_argument('--colours', type=str, default='./data/colours/colour_kmeans24_cat7.npy',
                             help='colours categories path')
+        parser.add_argument('--classification', action='store_true', default=False,
+                            help='')
+        parser.add_argument('--skip_connection', action='store_true', default=False,
+                            help='')
         self.parser = parser
 
     def parse(self):

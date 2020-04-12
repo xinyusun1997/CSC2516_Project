@@ -18,7 +18,7 @@ from PIL import Image
 import time
 import numpy as np
 import cv2
-from models import UNet, simple
+from models import simple, Zhang_model
 from dataset import *
 import pickle
 
@@ -50,6 +50,8 @@ def main():
     args.ohem = -2
     args.atte = False
     args.basepath = './'
+    args.classification = False
+    args.skip_connection = False
 
     # plot
     if args.plot:
@@ -64,22 +66,34 @@ def main():
     print("Loading data...")
     (x_train, y_train), (x_test, y_test) = load_cifar10()
     print(x_train.shape)
+
     # Transform data into rgb:
-    print("Transforming RGB data into Lab color space")
-    train_L, train_ab = cvt2lab(x_train, classification=True, num_class=50)
-    print(train_ab[0].shape)
+    # print("Transforming RGB data into Lab color space")
+    # train_L, train_ab = cvt2lab(x_train, classification=False, num_class=10)
+    print("Load Training data from presaved .npy files")
+    if args.classification:
+        train_L = np.load('./data/train_L.npy')
+        train_ab = np.load('./data/classification_train_ab.npy')
+        train_a = train_ab[0]
+        train_b = train_ab[1]
+    else:
+        train_L = np.load('./data/train_L.npy')
+        train_ab = np.load('./data/regression_train_ab.npy')
+    print(train_ab.shape)
     print(train_L.shape)
     # print(train_ab.shape)
 
     # train_rgb_cat = get_rgb_cat(train_rgb, colours)
-    test_rgb, test_grey = process(x_test, y_test)
+    # test_L, _ = cvt2lab(x_test, classification=False, num_class=10)
+    # np.save('./data/test_L.npy', test_L)
+    test_L = np.load('./data/test_L.npy')
     # test_rgb_cat = get_rgb_cat(test_rgb, colours)
 
     # train_loader, test_loader = Dataloder(args).getloader()
 
     # init the model
     if args.model == 'UNet':
-        model = simple()
+        model = simple(args)
     # print(model)
 
     if args.loss == 'CrossEntropyLoss':
@@ -122,33 +136,41 @@ def main():
         model.cuda()
         print("Beginning training ...")
         start = time.time()
-
-        num_in_channels = 1 if not args.downsize_input else 3
-    #
-    #     criterion = nn.CrossEntropyLoss()
+        train_loss = []
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         for epoch in range(args.epochs):
-            train_loss = 0.
-            valid_loss = 0.
-            for i in range(0, train_rgb.shape[0], args.batch_size):
-                batch_rgb = torch.autograd.Variable(torch.from_numpy(train_rgb[i:i+args.batch_size]).float().cuda(), requires_grad = False)
-                batch_grey = torch.autograd.Variable(torch.from_numpy(train_grey[i:i+args.batch_size]).float().cuda(), requires_grad = False)
+            losses = []
+            for i in range(0, train_L.shape[0], args.batch_size):
+                batch_ab = torch.autograd.Variable(torch.from_numpy(train_ab[i:i+args.batch_size]).float().cuda(), requires_grad = False)
+                batch_grey = torch.autograd.Variable(torch.from_numpy(train_L[i:i+args.batch_size]).float().cuda(), requires_grad = False)
                 optimizer.zero_grad()
                 batch_output = model(batch_grey)
-                loss = criterion(batch_output, batch_rgb)
+                loss = criterion(batch_output, batch_ab)
                 loss.backward()
                 optimizer.step()
-                train_loss += loss.item()
-
-                print("This epoch loss is ", loss.item())
+                losses.append(loss.data.item())
+            avg_loss = np.mean(losses)
+            train_loss.append(avg_loss)
+            # save_dir = "outputs/" + args.experiment_name
+            # # Create the outputs folder if not created already
+            # if not os.path.exists(save_dir):
+            #     os.makedirs(save_dir)
+            print('Epoch [%d/%d], Loss: %.4f' % (epoch+1, args.epochs, avg_loss))
         return model
-    # train()
-    #
-    #     save_dir = "outputs/" + args.experiment_name
-    #     # Create the outputs folder if not created already
-    #     if not os.path.exists(save_dir):
-    #         os.makedirs(save_dir)
-    #
+    def test():
+        model = simple(args)
+        model.load_state_dict(torch.load('./checkpoints/final_model.pth'))
+        model.eval()
+        test_L_input = torch.autograd.Variable(torch.from_numpy(test_L[0:20]).float(), requires_grad=False)
+        test_ab = model(test_L_input)
+        RGB = cvt2RGB(test_L_input.data.numpy(), test_ab.data.numpy())
+        RGB *= 255
+        print(RGB.shape)
+        np.save('./generated_RGB_data.npy', RGB)
+    test()
+    # final_model = train()
+    # torch.save(final_model.state_dict(), './checkpoints/final_model.pth')
+
     #     print("Beginning training ...")
     #     start = time.time()
     #     train_losses = []

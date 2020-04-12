@@ -35,7 +35,8 @@ def process(xs, ys, max_pixel=256.0):
 
     return (xs, grey)
 
-def cvt2lab(rgb_data, classification=False, num_class=50):
+def cvt2lab(rgb_data, classification=False, num_class=10):
+    # rgb_data = rgb_data[np.where(ys == 7)[0], :, :, :]
     npr.shuffle(rgb_data)
     # Change the order to make it suitable for LUV conversion
     rgb_data = np.rollaxis(rgb_data, 1, 4)
@@ -48,21 +49,30 @@ def cvt2lab(rgb_data, classification=False, num_class=50):
         temp_lab = color.rgb2lab(temp_rgb)
         temp_lab[:,:,1:] += 128
         if classification:
-            temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / 5)
+            temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / np.ceil(256/num_class))
             for m in range(temp_lab.shape[0]):
                 for n in range(temp_lab.shape[1]):
-                    a_onehot[i, m, n] = np.eye(50)[np.int(temp_lab[m, n, 1])]
-                    b_onehot[i, m, n] = np.eye(50)[np.int(temp_lab[m, n, 2])]
-        else:
-            LUV[i] = temp_lab
+                    a_onehot[i, m, n] = np.eye(num_class)[np.int(temp_lab[m, n, 1])]
+                    b_onehot[i, m, n] = np.eye(num_class)[np.int(temp_lab[m, n, 2])]
+        LUV[i] = temp_lab
 
     if classification:
         return np.expand_dims(LUV[:,:,:,0], axis=1), (np.rollaxis(a_onehot, 3, 1), np.rollaxis(b_onehot, 3, 1))
     else:
         return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
 
-def cvt2RGB():
-    pass
+def cvt2RGB(L, ab, classification = False, num_class = 10):
+    Lab = np.concatenate((L, ab), axis = 1)
+    Lab = np.rollaxis(Lab, 1, 4)
+    Lab[:, :, :, 1:] -= 128
+    RGB = np.empty(Lab.shape)
+    for i in range(Lab.shape[0]):
+        temp_Lab = Lab[i]
+        temp_RGB = color.lab2rgb(temp_Lab)
+        RGB[i] = temp_RGB
+    return RGB
+
+
 def get_file(fname, origin, untar=False, extract=False, archive_format='auto', cache_dir='data'):
     datadir = os.path.join(cache_dir)
     if not os.path.exists(datadir):
