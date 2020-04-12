@@ -63,14 +63,16 @@ def main():
         torch.cuda.manual_seed(args.seed)
 
     # IMAGE DATA
-    print("Loading data...")
-    (x_train, y_train), (x_test, y_test) = load_cifar10()
-    print(x_train.shape)
+    # print("Loading data...")
+    # (x_train, y_train), (x_test, y_test) = load_cifar10()
+    # print(x_train.shape)
 
     # Transform data into rgb:
     # print("Transforming RGB data into Lab color space")
     # train_L, train_ab = cvt2lab(x_train, classification=False, num_class=10)
-    print("Load Training data from presaved .npy files")
+    # np.save('./data/train_L.npy', train_L)
+    # np.save('./data/classification_train_ab.npy', train_ab)
+    print("Load Training data from saved .npy files")
     if args.classification:
         train_L = np.load('./data/train_L.npy')
         train_ab = np.load('./data/classification_train_ab.npy')
@@ -161,16 +163,16 @@ def main():
         model = simple(args)
         model.load_state_dict(torch.load('./checkpoints/final_model.pth'))
         model.eval()
-        test_L_input = torch.autograd.Variable(torch.from_numpy(test_L[0:20]).float(), requires_grad=False)
+        test_L_input = torch.autograd.Variable(torch.from_numpy(test_L[0:10]).float(), requires_grad=False)
         test_ab = model(test_L_input)
+        print(test_ab.shape)
         RGB = cvt2RGB(test_L_input.data.numpy(), test_ab.data.numpy())
-        RGB *= 255
         print(RGB.shape)
         np.save('./generated_RGB_data.npy', RGB)
-    test()
+
     # final_model = train()
     # torch.save(final_model.state_dict(), './checkpoints/final_model.pth')
-
+    test()
     #     print("Beginning training ...")
     #     start = time.time()
     #     train_losses = []

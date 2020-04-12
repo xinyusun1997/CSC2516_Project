@@ -37,6 +37,8 @@ def process(xs, ys, max_pixel=256.0):
 
 def cvt2lab(rgb_data, classification=False, num_class=10):
     # rgb_data = rgb_data[np.where(ys == 7)[0], :, :, :]
+    # Because skimage.color.rgb2lab expects the input values to be in [0, 1]
+    rgb_data = rgb_data / 255
     npr.shuffle(rgb_data)
     # Change the order to make it suitable for LUV conversion
     rgb_data = np.rollaxis(rgb_data, 1, 4)
@@ -63,8 +65,11 @@ def cvt2lab(rgb_data, classification=False, num_class=10):
 
 def cvt2RGB(L, ab, classification = False, num_class = 10):
     Lab = np.concatenate((L, ab), axis = 1)
-    Lab = np.rollaxis(Lab, 1, 4)
-    Lab[:, :, :, 1:] -= 128
+    if classification:
+        pass
+    else:
+        Lab = np.rollaxis(Lab, 1, 4)
+        Lab[:, :, :, 1:] -= 128
     RGB = np.empty(Lab.shape)
     for i in range(Lab.shape[0]):
         temp_Lab = Lab[i]
