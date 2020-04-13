@@ -11,7 +11,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 from option import Options
-from utils import get_torch_vars, compute_loss # run_validation_step
+from utils import get_torch_vars, compute_loss, evaluation_metrics # run_validation_step
 from loss import CrossEntropyLabelSmooth
 from tqdm import tqdm
 from PIL import Image
@@ -42,17 +42,16 @@ def main():
     args.loss = 'CrossEntropyLoss'
     args.backbone = 'resnet18'
 
-    args.lr = 0.001  # 0.004  #0.01 #
-    args.epochs = 5  # 60#20 #60
+    args.lr = 1e-3  # 0.004  #0.01 #
+    args.epochs = 10  # 60#20 #60
     args.lr_step = 15
-    args.test_aug = False
-    args.nclass = 24
-    args.ohem = -2
-    args.atte = False
-    args.basepath = './'
-    args.classification = False
-    args.skip_connection = False
 
+    args.basepath = './'
+
+    args.classification = True
+    args.skip_connection = False
+    args.eval = False
+    args.from_npy = True
     # plot
     if args.plot:
         print('=>Enabling matplotlib for display:')
@@ -62,55 +61,126 @@ def main():
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
 
-    # IMAGE DATA
-    # print("Loading data...")
     # (x_train, y_train), (x_test, y_test) = load_cifar10()
-    # print(x_train.shape)
+    # train_L, train_ab = cvt2lab_new(x_train, classification=args.classification, num_class=10)
+    # np.save('./data/classification_train_ab_new.npy', train_ab)
+    # return
+    # Make .npy files
+    # This will take long time.
+    if not args.from_npy:
+        (x_train, y_train), (x_test, y_test) = load_cifar10()
+        print("Transforming RGB data into Lab color space")
+        train_L, train_ab = cvt2lab_new(x_train, classification=args.classification, num_class=10)
+        np.save('./data/train_L.npy', train_L)
+        if args.classification:
+            np.save('./data/classification_train_ab_new.npy', train_ab)
+        else:
+            np.save('./data/regession_train_ab.npy', train_ab)
 
-    # Transform data into rgb:
-    # print("Transforming RGB data into Lab color space")
-    # train_L, train_ab = cvt2lab(x_train, classification=False, num_class=10)
-    # np.save('./data/train_L.npy', train_L)
-    # np.save('./data/classification_train_ab.npy', train_ab)
-    print("Load Training data from saved .npy files")
-    if args.classification:
-        train_L = np.load('./data/train_L.npy')
-        train_ab = np.load('./data/classification_train_ab.npy')
-        train_a = train_ab[0]
-        train_b = train_ab[1]
+        test_rgb = np.rollaxis(x_test, 1, 4)
+        test_rgb = test_rgb / 255
+        np.save('./data/test_rgb.npy', test_rgb)
+        test_L, _ = cvt2lab(x_test, classification=False, num_class=10)
+        np.save('./data/test_L.npy', test_L)
+
+    # IMAGE DATA
+    # Read from saved .npy files
     else:
-        train_L = np.load('./data/train_L.npy')
-        train_ab = np.load('./data/regression_train_ab.npy')
-    print(train_ab.shape)
-    print(train_L.shape)
-    # print(train_ab.shape)
-
-    # train_rgb_cat = get_rgb_cat(train_rgb, colours)
-    # test_L, _ = cvt2lab(x_test, classification=False, num_class=10)
-    # np.save('./data/test_L.npy', test_L)
-    test_L = np.load('./data/test_L.npy')
-    # test_rgb_cat = get_rgb_cat(test_rgb, colours)
-
-    # train_loader, test_loader = Dataloder(args).getloader()
+        if not args.eval:
+            print("Load Training data from saved .npy files")
+            if args.classification:
+                train_L = np.load('./data/train_L.npy')
+                train_ab = np.load('./data/classification_train_ab_new.npy')
+                train_a = train_ab[0]
+                train_b = train_ab[1]
+            else:
+                train_L = np.load('./data/train_L.npy')
+                train_ab = np.load('./data/regression_train_ab.npy')
+        test_L = np.load('./data/test_L.npy')
+        test_RGB_gt = np.load('./data/test_rgb.npy')
+    print('Finish Data Loading')
 
     # init the model
-    if args.model == 'UNet':
-        model = simple(args)
-    # print(model)
+    model = simple(args)
+    if args.cuda:
+        model.cuda()
 
-    if args.loss == 'CrossEntropyLoss':
-        criterion = nn.CrossEntropyLoss(ignore_index=-1)
-    elif args.loss == 'CrossEntropyLabelSmooth':
-        criterion = CrossEntropyLabelSmooth(num_classes=args.nclass, ignore_index=-1)
-    criterion = nn.MSELoss()
+    if args.classification:
+        criterion = nn.CrossEntropyLoss()
+    else:
+        criterion = nn.MSELoss()
+
+    def train(model):
+        print("Beginning training ...")
+        train_loss = []
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+        best_loss = float('inf')
+        for epoch in range(args.epochs):
+            model.train()
+            losses = []
+            for i in range(0, train_L.shape[0], args.batch_size):
+                # Regression Training
+                if not args.classification:
+                    batch_grey = torch.autograd.Variable(torch.from_numpy(train_L[i:i+args.batch_size]).float(), requires_grad = False)
+                    batch_ab = torch.autograd.Variable(torch.from_numpy(train_ab[i:i + args.batch_size]).float(),requires_grad=False)
+                    if args.cuda:
+                        batch_ab = batch_ab.cuda()
+                        batch_grey = batch_grey.cuda()
+                    optimizer.zero_grad()
+                    batch_output = model(batch_grey)
+                    loss = criterion(batch_output, batch_ab)
+                # Classification Training
+                else:
+                    batch_grey = torch.autograd.Variable(torch.from_numpy(train_L[i:i+args.batch_size]).float(), requires_grad = False)
+                    batch_a = torch.autograd.Variable(torch.from_numpy(train_a[i:i + args.batch_size]).long(), requires_grad=False)
+                    batch_b = torch.autograd.Variable(torch.from_numpy(train_b[i:i + args.batch_size]).long(), requires_grad=False)
+                    if args.cuda:
+                        batch_grey = batch_grey.cuda()
+                        batch_a = batch_a.cuda()
+                        batch_b = batch_b.cuda()
+                    optimizer.zero_grad()
+                    batch_output = model(batch_grey)
+                    loss_a = criterion(batch_output[0], batch_a)
+                    loss_b = criterion(batch_output[1], batch_b)
+                    loss = loss_a + loss_b
+                loss.backward()
+                optimizer.step()
+                losses.append(loss.data.item())
+            avg_loss = np.mean(losses)
+            train_loss.append(avg_loss)
+            print('Epoch [%d/%d], Loss: %.4f' % (epoch+1, args.epochs, avg_loss))
+
+            if avg_loss < best_loss:
+                torch.save(model.state_dict(), './checkpoints/best_model.pth')
+                best_loss = avg_loss
+                print('Best Training Model Saved')
+        return model
+
+    def test(model):
+        model.eval()
+        eval_loss_test = []
+        for i in range(0, test_L.shape[0], args.batch_size):
+            test_L_input = torch.autograd.Variable(torch.from_numpy(test_L[i:i+args.batch_size]).float(), requires_grad=False)
+            if args.cuda:
+                test_L_input = test_L_input.cuda()
+            test_ab = model(test_L_input)
+            if args.cuda:
+                pred_rgb = cvt2RGB(test_L_input.cpu().data.numpy(), test_ab.cpu().data.numpy())
+            else:
+                pred_rgb = cvt2RGB(test_L_input.data.numpy(), test_ab.data.numpy())
+            gt_rgb = test_RGB_gt[i:i+args.batch_size]
+            eval_loss = evaluation_metrics(pred_rgb, gt_rgb)
+            eval_loss_test.append(eval_loss)
+        eval_loss = np.mean(eval_loss_test)
+        print('Average Deviation Level in Color Saturation is %.4f ' % eval_loss)
+
+    if not args.eval:
+        model = train(model)
+    else:
+        model.load_state_dict(torch.load('./checkpoints/best_model.pth'))
+        test(model)
 
 
-
-    # optimizer = get_optimizer(args, model, False)
-    # if args.cuda:
-    #     model.cuda()
-    #     model = torch.nn.DataParallel(model)
-    # # check point
     #
     # if args.resume is not None:
     #     if os.path.isfile(args.resume):
@@ -133,46 +203,8 @@ def main():
     # if args.eval == False:
     #     scheduler = LR_Scheduler(args, len(train_loader))
 
-    def train():
-        model.train()
-        model.cuda()
-        print("Beginning training ...")
-        start = time.time()
-        train_loss = []
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-        for epoch in range(args.epochs):
-            losses = []
-            for i in range(0, train_L.shape[0], args.batch_size):
-                batch_ab = torch.autograd.Variable(torch.from_numpy(train_ab[i:i+args.batch_size]).float().cuda(), requires_grad = False)
-                batch_grey = torch.autograd.Variable(torch.from_numpy(train_L[i:i+args.batch_size]).float().cuda(), requires_grad = False)
-                optimizer.zero_grad()
-                batch_output = model(batch_grey)
-                loss = criterion(batch_output, batch_ab)
-                loss.backward()
-                optimizer.step()
-                losses.append(loss.data.item())
-            avg_loss = np.mean(losses)
-            train_loss.append(avg_loss)
-            # save_dir = "outputs/" + args.experiment_name
-            # # Create the outputs folder if not created already
-            # if not os.path.exists(save_dir):
-            #     os.makedirs(save_dir)
-            print('Epoch [%d/%d], Loss: %.4f' % (epoch+1, args.epochs, avg_loss))
-        return model
-    def test():
-        model = simple(args)
-        model.load_state_dict(torch.load('./checkpoints/final_model.pth'))
-        model.eval()
-        test_L_input = torch.autograd.Variable(torch.from_numpy(test_L[0:10]).float(), requires_grad=False)
-        test_ab = model(test_L_input)
-        print(test_ab.shape)
-        RGB = cvt2RGB(test_L_input.data.numpy(), test_ab.data.numpy())
-        print(RGB.shape)
-        np.save('./generated_RGB_data.npy', RGB)
-
-    # final_model = train()
     # torch.save(final_model.state_dict(), './checkpoints/final_model.pth')
-    test()
+    # test()
     #     print("Beginning training ...")
     #     start = time.time()
     #     train_losses = []

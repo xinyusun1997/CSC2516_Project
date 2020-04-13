@@ -44,8 +44,11 @@ class simple(nn.Module):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.regression_out(x)
+        if self.classification:
+            x = (self.classification_a(x), self.classification_b(x))
+        else:
+            x = self.layer4(x)
+            x = self.regression_out(x)
         return x
 
 class Zhang_model(nn.Module):

@@ -95,6 +95,8 @@ class Options():
                             help='')
         parser.add_argument('--skip_connection', action='store_true', default=False,
                             help='')
+        parser.add_argument('--from_npy', action='store_true', default=True,
+                            help='')
         self.parser = parser
 
     def parse(self):

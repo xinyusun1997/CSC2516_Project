@@ -59,6 +59,17 @@ def compute_loss(criterion, outputs, labels, batch_size, num_colours):
                       .view([batch_size*32*32])
     return criterion(loss_out, loss_lab)
 
+def evaluation_metrics(output_RGB, gt_RGB):
+    eval_loss = []
+    for i in range(0, gt_RGB.shape[0]):
+        gt_hsv = color.rgb2hsv(gt_RGB[i])
+        pred_hsv = color.rgb2hsv(output_RGB[i])
+        if np.sum(gt_hsv[:, :, 1]) != 0:
+            diff = abs(np.sum(gt_hsv[:, :, 1]) - np.sum(pred_hsv[:, :, 1])) / np.sum(gt_hsv[:, :, 1])
+            eval_loss.append(diff)
+    avg_diff = np.mean(eval_loss)
+    return avg_diff
+
 # def run_validation_step(cnn, criterion, test_grey, test_rgb_cat, batch_size,
 #                         colours, plotpath=None, visualize=True, downsize_input=False):
 #     correct = 0.0

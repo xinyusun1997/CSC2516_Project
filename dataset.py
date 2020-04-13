@@ -63,6 +63,34 @@ def cvt2lab(rgb_data, classification=False, num_class=10):
     else:
         return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
 
+def cvt2lab_new(rgb_data, classification=False, num_class=10):
+    # rgb_data = rgb_data[np.where(ys == 7)[0], :, :, :]
+    # Because skimage.color.rgb2lab expects the input values to be in [0, 1]
+    rgb_data = rgb_data / 255
+    npr.shuffle(rgb_data)
+    # Change the order to make it suitable for LUV conversion
+    rgb_data = np.rollaxis(rgb_data, 1, 4)
+    LUV = np.empty(rgb_data.shape)
+    if classification:
+        a_onehot = np.empty(rgb_data.shape[0:3])
+        b_onehot = np.empty(rgb_data.shape[0:3])
+    for i in range(LUV.shape[0]):
+        temp_rgb = rgb_data[i]
+        temp_lab = color.rgb2lab(temp_rgb)
+        temp_lab[:,:,1:] += 128
+        if classification:
+            temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / np.ceil(256/num_class))
+            for m in range(temp_lab.shape[0]):
+                for n in range(temp_lab.shape[1]):
+                    a_onehot[i, m, n] = np.int(temp_lab[m, n, 1])
+                    b_onehot[i, m, n] = np.int(temp_lab[m, n, 2])
+        LUV[i] = temp_lab
+
+    if classification:
+        return np.expand_dims(LUV[:,:,:,0], axis=1), (a_onehot, b_onehot)
+    else:
+        return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
+
 def cvt2RGB(L, ab, classification = False, num_class = 10):
     Lab = np.concatenate((L, ab), axis = 1)
     if classification:
@@ -176,82 +204,5 @@ def load_cifar10(transpose=False):
     return (x_train, y_train), (x_test, y_test)
 
 
-def get_rgb_cat(xs, colours):
-    """
-    Get colour categories given RGB values. This function doesn't
-    actually do the work, instead it splits the work into smaller
-    chunks that can fit into memory, and calls helper function
-    _get_rgb_cat
-
-    Args:
-      xs: float numpy array of RGB images in [B, C, H, W] format
-      colours: numpy array of colour categories and their RGB values
-    Returns:
-      result: int numpy array of shape [B, 1, H, W]
-    """
-    if np.shape(xs)[0] < 100:
-        return _get_rgb_cat(xs)
-    batch_size = 100
-    nexts = []
-    for i in range(0, np.shape(xs)[0], batch_size):
-        next = _get_rgb_cat(xs[i:i + batch_size, :, :, :], colours)
-        nexts.append(next)
-    result = np.concatenate(nexts, axis=0)
-    return result
-
-
-def _get_rgb_cat(xs, colours):
-    """
-    Get colour categories given RGB values. This is done by choosing
-    the colour in `colours` that is the closest (in RGB space) to
-    each point in the image `xs`. This function is a little memory
-    intensive, and so the size of `xs` should not be too large.
-
-    Args:
-      xs: float numpy array of RGB images in [B, C, H, W] format
-      colours: numpy array of colour categories and their RGB values
-    Returns:
-      result: int numpy array of shape [B, 1, H, W]
-    """
-    num_colours = np.shape(colours)[0]
-    xs = np.expand_dims(xs, 0)
-    cs = np.reshape(colours, [num_colours, 1, 3, 1, 1])
-    dists = np.linalg.norm(xs - cs, axis=2)  # 2 = colour axis
-    cat = np.argmin(dists, axis=0)
-    cat = np.expand_dims(cat, axis=1)
-    return cat
-
-
-def get_cat_rgb(cats, colours):
-    """
-    Get RGB colours given the colour categories
-
-    Args:
-      cats: integer numpy array of colour categories
-      colours: numpy array of colour categories and their RGB values
-    Returns:
-      numpy tensor of RGB colours
-    """
-    return colours[cats]
-
-
-def get_batch(x, y, batch_size):
-    '''
-    Generated that yields batches of data
-
-    Args:
-      x: input values
-      y: output values
-      batch_size: size of each batch
-    Yields:
-      batch_x: a batch of inputs of size at most batch_size
-      batch_y: a batch of outputs of size at most batch_size
-    '''
-    N = np.shape(x)[0]
-    assert N == np.shape(y)[0]
-    for i in range(0, N, batch_size):
-        batch_x = x[i:i + batch_size, :, :, :]
-        batch_y = y[i:i + batch_size, :, :, :]
-        yield (batch_x, batch_y)
 
 
