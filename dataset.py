@@ -13,7 +13,9 @@ import numpy.random as npr
 import pickle
 import sys
 from PIL import Image
-from skimage import color
+from skimage import io, color
+from skimage.transform import rescale, resize
+
 def process(xs, ys, max_pixel=256.0):
     """
     Pre-process CIFAR10 images
@@ -209,5 +211,83 @@ def load_cifar10(transpose=False):
     return (x_train, y_train), (x_test, y_test)
 
 
+# Dataset Retrieved from https://github.com/cetinsamet/image-colorization
+def format_e(n):
+    a = '%E' % n
+    return a.split('E')[0].rstrip('0').rstrip('.') + 'E' + a.split('E')[1]
+
+def read_image(filename, size=(256, 256), training=False):
+    img = io.imread(filename)
+    real_size = img.shape
+    if img.shape!=size and not training:
+        img = resize(img, size, anti_aliasing=False)
+    if len(img.shape) == 2:
+        img = np.stack([img, img, img], 2)
+    return img, real_size[:2]
 
 
+def cvt2Lab_ls(image):
+    Lab = color.rgb2lab(image)
+    return Lab[:, :, 0], Lab[:, :, 1:]  # L, ab
+
+def cvt2rgb_ls(image):
+    return color.lab2rgb(image)
+
+def load_landscape_dataset():
+
+    # Try to train and test model on 256 x 256 images.
+    TRAIN_IMAGENAME_PATH = "./data/landscape/train.txt"
+    VALID_IMAGENAME_PATH = "./data/landscape/valid.txt"
+
+    GRAY_IMAGE_PATH = "./data/landscape/gray/"
+    COLOR_256_IMAGE_PATH = "./data/landscape/color_256/"
+    with open(TRAIN_IMAGENAME_PATH, 'r') as infile:
+        train_imagename = [line.strip() for line in infile]
+    with open(VALID_IMAGENAME_PATH, 'r') as infile:
+        valid_imagename = [line.strip() for line in infile]
+
+    # LOAD GRAY IMAGES
+    gray_images = list()
+    for gray_imagename in os.listdir(GRAY_IMAGE_PATH):
+        gray_image, s   = read_image(GRAY_IMAGE_PATH+gray_imagename)
+        gray_image      = (gray_imagename, cvt2Lab_ls(gray_image)[0])
+        gray_images.append(gray_image)
+    gray_images = sorted(gray_images, key=lambda x: x[0])
+    print("-> gray images are loded")
+
+    # SPLIT GRAY IMAGES TO TRAIN AND VALIDATION SETS
+    x_train, x_valid = np.empty([1, 1, 256, 256]), np.empty([1, 1, 256, 256])
+    for gray_imagename, gray_image in gray_images:
+        if gray_imagename in train_imagename:
+            x_train = np.concatenate([x_train, np.reshape(gray_image, (1,) + x_train.shape[1:])])
+        if gray_imagename in valid_imagename:
+            x_valid = np.concatenate([x_valid, np.reshape(gray_image, (1,) + x_valid.shape[1:])])
+    x_train, x_valid = x_train[1:], x_valid[1:]
+    print("-> gray images are splitted to datasets")
+    print()
+
+    # LOAD 64X64 COLOR IMAGES
+    color64_images = list()
+    for color64_imagename in os.listdir(COLOR_256_IMAGE_PATH):
+        color64_image, s    = read_image(COLOR_256_IMAGE_PATH+color64_imagename, training=True)
+        color64_image       = (color64_imagename, cvt2Lab_ls(color64_image)[1])
+        color64_images.append(color64_image)
+    color64_images  = sorted(color64_images, key=lambda x:x[0])
+    print("-> 256x256 color images are loded")
+
+    # SPLIT 64x64 COLOR IMAGES TO TRAIN AND VALIDATION SETS
+    y_train, y_valid    = np.empty([1, 256, 256, 2]), np.empty([1, 256, 256, 2])
+    for color64_imagename, color64_image in color64_images:
+        if color64_imagename in train_imagename:
+            y_train = np.concatenate([y_train, np.expand_dims(color64_image, axis=0)])
+        if color64_imagename in valid_imagename:
+            y_valid = np.concatenate([y_valid, np.expand_dims(color64_image, axis=0)])
+    y_train, y_valid = np.rollaxis(y_train[1:], 3, 1), np.rollaxis(y_valid[1:], 3, 1)
+    print("-> 256x256 color images are splitted to datasets")
+    print()
+    np.save('./data/landscape/x_train.npy', x_train)
+    np.save('./data/landscape/y_train.npy', y_train)
+    np.save('./data/landscape/x_valid.npy', x_valid)
+    np.save('./data/landscape/y_valid.npy', y_valid)
+if __name__ == '__main__':
+    load_landscape_dataset()
