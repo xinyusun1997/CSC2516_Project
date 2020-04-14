@@ -50,7 +50,7 @@ def main():
 
     args.classification = True
     args.skip_connection = False
-    args.eval = False
+    args.eval = True
     args.from_npy = True
     # plot
     if args.plot:
@@ -107,8 +107,10 @@ def main():
 
     if args.classification:
         criterion = nn.CrossEntropyLoss()
+        model_path = './checkpoints/classification_best_model.pth'
     else:
         criterion = nn.MSELoss()
+        model_path = './checkpoints/regression_best_model.pth'
 
     def train(model):
         print("Beginning training ...")
@@ -151,7 +153,8 @@ def main():
             print('Epoch [%d/%d], Loss: %.4f' % (epoch+1, args.epochs, avg_loss))
 
             if avg_loss < best_loss:
-                torch.save(model.state_dict(), './checkpoints/best_model.pth')
+
+                torch.save(model.state_dict(), model_path)
                 best_loss = avg_loss
                 print('Best Training Model Saved')
         return model
@@ -164,10 +167,19 @@ def main():
             if args.cuda:
                 test_L_input = test_L_input.cuda()
             test_ab = model(test_L_input)
-            if args.cuda:
-                pred_rgb = cvt2RGB(test_L_input.cpu().data.numpy(), test_ab.cpu().data.numpy())
+            if not args.classification:
+                if args.cuda:
+                    pred_rgb = cvt2RGB(test_L_input.cpu().data.numpy(), test_ab.cpu().data.numpy(), args.classification)
+                else:
+                    pred_rgb = cvt2RGB(test_L_input.data.numpy(), test_ab.data.numpy(), args.classification)
             else:
-                pred_rgb = cvt2RGB(test_L_input.data.numpy(), test_ab.data.numpy())
+                if args.cuda:
+                    test_ab = (test_ab[0].cpu().data.numpy(), test_ab[1].cpu().data.numpy())
+                    pred_rgb = cvt2RGB(test_L_input.cpu().data.numpy(), test_ab, args.classification)
+                else:
+                    test_ab = (test_ab[0].data.numpy(), test_ab[1].data.numpy())
+                    pred_rgb = cvt2RGB(test_L_input.data.numpy(), test_ab, args.classification)
+            # np.save('./pred_rgb_example.npy', pred_rgb)
             gt_rgb = test_RGB_gt[i:i+args.batch_size]
             eval_loss = evaluation_metrics(pred_rgb, gt_rgb)
             eval_loss_test.append(eval_loss)
@@ -177,7 +189,7 @@ def main():
     if not args.eval:
         model = train(model)
     else:
-        model.load_state_dict(torch.load('./checkpoints/best_model.pth'))
+        model.load_state_dict(torch.load(model_path))
         test(model)
 
 

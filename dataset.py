@@ -92,10 +92,15 @@ def cvt2lab_new(rgb_data, classification=False, num_class=10):
         return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
 
 def cvt2RGB(L, ab, classification = False, num_class = 10):
-    Lab = np.concatenate((L, ab), axis = 1)
     if classification:
-        pass
+        L = np.rollaxis(L, 1, 4)
+        pred_a = np.expand_dims(np.argmax(np.rollaxis(ab[0], 1, 4), axis=3), axis = 3)
+        pred_b = np.expand_dims(np.argmax(np.rollaxis(ab[1], 1, 4), axis=3), axis = 3)
+        pred_a = pred_a * 26 + 13 - 128
+        pred_b = pred_b * 26 + 13 - 128
+        Lab = np.concatenate((L, pred_a, pred_b), axis = 3)
     else:
+        Lab = np.concatenate((L, ab), axis=1)
         Lab = np.rollaxis(Lab, 1, 4)
         Lab[:, :, :, 1:] -= 128
     RGB = np.empty(Lab.shape)
