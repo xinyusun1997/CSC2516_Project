@@ -45,23 +45,24 @@ def cvt2lab(rgb_data, classification=False, num_class=10):
     # Change the order to make it suitable for LUV conversion
     rgb_data = np.rollaxis(rgb_data, 1, 4)
     LUV = np.empty(rgb_data.shape)
-    if classification:
-        a_onehot = np.empty((*rgb_data.shape[0:3], num_class))
-        b_onehot = np.empty((*rgb_data.shape[0:3], num_class))
+    # if classification:
+    #     a_onehot = np.empty((*rgb_data.shape[0:3], num_class))
+    #     b_onehot = np.empty((*rgb_data.shape[0:3], num_class))
     for i in range(LUV.shape[0]):
         temp_rgb = rgb_data[i]
         temp_lab = color.rgb2lab(temp_rgb)
         temp_lab[:,:,1:] += 128
-        if classification:
-            temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / np.ceil(256/num_class))
-            for m in range(temp_lab.shape[0]):
-                for n in range(temp_lab.shape[1]):
-                    a_onehot[i, m, n] = np.eye(num_class)[np.int(temp_lab[m, n, 1])]
-                    b_onehot[i, m, n] = np.eye(num_class)[np.int(temp_lab[m, n, 2])]
+        # if classification:
+        #     temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / np.ceil(256/num_class))
+        #     for m in range(temp_lab.shape[0]):
+        #         for n in range(temp_lab.shape[1]):
+        #             a_onehot[i, m, n] = np.eye(num_class)[np.int(temp_lab[m, n, 1])]
+        #             b_onehot[i, m, n] = np.eye(num_class)[np.int(temp_lab[m, n, 2])]
         LUV[i] = temp_lab
 
     if classification:
-        return np.expand_dims(LUV[:,:,:,0], axis=1), (np.rollaxis(a_onehot, 3, 1), np.rollaxis(b_onehot, 3, 1))
+        pass
+        # return np.expand_dims(LUV[:,:,:,0], axis=1), (np.rollaxis(a_onehot, 3, 1), np.rollaxis(b_onehot, 3, 1))
     else:
         return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
 
@@ -73,38 +74,40 @@ def cvt2lab_new(rgb_data, classification=False, num_class=10):
     # Change the order to make it suitable for LUV conversion
     rgb_data = np.rollaxis(rgb_data, 1, 4)
     LUV = np.empty(rgb_data.shape)
-    if classification:
-        a_onehot = np.empty(rgb_data.shape[0:3])
-        b_onehot = np.empty(rgb_data.shape[0:3])
+    # if classification:
+    #     a_onehot = np.empty(rgb_data.shape[0:3])
+    #     b_onehot = np.empty(rgb_data.shape[0:3])
     for i in range(LUV.shape[0]):
         temp_rgb = rgb_data[i]
         temp_lab = color.rgb2lab(temp_rgb)
         temp_lab[:,:,1:] += 128
-        if classification:
-            temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / np.ceil(256/num_class))
-            for m in range(temp_lab.shape[0]):
-                for n in range(temp_lab.shape[1]):
-                    a_onehot[i, m, n] = np.int(temp_lab[m, n, 1])
-                    b_onehot[i, m, n] = np.int(temp_lab[m, n, 2])
+        # if classification:
+        #     temp_lab[:, :, 1:] = np.floor(temp_lab[:,:,1:] / np.ceil(256/num_class))
+        #     for m in range(temp_lab.shape[0]):
+        #         for n in range(temp_lab.shape[1]):
+        #             a_onehot[i, m, n] = np.int(temp_lab[m, n, 1])
+        #             b_onehot[i, m, n] = np.int(temp_lab[m, n, 2])
         LUV[i] = temp_lab
 
     if classification:
-        return np.expand_dims(LUV[:,:,:,0], axis=1), (a_onehot, b_onehot)
+        pass
+        # return np.expand_dims(LUV[:,:,:,0], axis=1), (a_onehot, b_onehot)
     else:
         return np.expand_dims(LUV[:,:,:,0], axis=1), np.rollaxis(LUV[:,:,:,1:], 3, 1)
 
 def cvt2RGB(L, ab, classification = False, num_class = 10):
     if classification:
-        L = np.rollaxis(L, 1, 4)
-        pred_a = np.expand_dims(np.argmax(np.rollaxis(ab[0], 1, 4), axis=3), axis = 3)
-        pred_b = np.expand_dims(np.argmax(np.rollaxis(ab[1], 1, 4), axis=3), axis = 3)
-        pred_a = pred_a * 13 + 7 - 128
-        pred_b = pred_b * 13 + 7 - 128
-        Lab = np.concatenate((L, pred_a, pred_b), axis = 3)
+        pass
+        # L = np.rollaxis(L, 1, 4)
+        # pred_a = np.expand_dims(np.argmax(np.rollaxis(ab[0], 1, 4), axis=3), axis = 3)
+        # pred_b = np.expand_dims(np.argmax(np.rollaxis(ab[1], 1, 4), axis=3), axis = 3)
+        # pred_a = pred_a * 13 + 7 - 128
+        # pred_b = pred_b * 13 + 7 - 128
+        # Lab = np.concatenate((L, pred_a, pred_b), axis = 3)
     else:
         Lab = np.concatenate((L, ab), axis=1)
         Lab = np.rollaxis(Lab, 1, 4)
-        Lab[:, :, :, 1:] -= 128
+        # Lab[:, :, :, 1:] -= 128
     RGB = np.empty(Lab.shape)
     for i in range(Lab.shape[0]):
         temp_Lab = Lab[i]

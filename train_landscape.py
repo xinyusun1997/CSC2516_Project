@@ -16,7 +16,7 @@ from loss import CrossEntropyLabelSmooth
 import time
 import numpy as np
 import cv2
-from models import simple, Zhang_model
+from models import simple, Zhang_model, NNEncLayer, decode
 from dataset import *
 import pickle
 
@@ -30,11 +30,11 @@ def main():
     args.plot = False
     args.dataset = 'data'
     args.model = 'UNet'
-    args.batch_size = 8  # 128 #32
+    args.batch_size = 4  # 128 #32
     args.loss = 'CrossEntropyLoss'
     args.backbone = 'resnet18'
 
-    args.lr = 1e-4  # 0.004  #0.01 #
+    args.lr = 5e-4  # 0.004  #0.01 #
     args.epochs = 10  # 60#20 #60
     args.lr_step = 15
 
@@ -42,14 +42,14 @@ def main():
 
     args.classification = True
     args.skip_connection = False
-    args.eval = False
+    args.eval = True
     args.from_npy = True
 
     # plot
-    if args.plot:
-        print('=>Enabling matplotlib for display:')
-        plot.ion()
-        plot.show()
+    # if args.plot:
+    #     print('=>Enabling matplotlib for display:')
+    #     plot.ion()
+    #     plot.show()
 
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
@@ -58,7 +58,6 @@ def main():
     print('Note for landscape data, these are Lab type.')
     x_train = np.load('./data/landscape/x_train.npy')
     y_train = np.load('./data/landscape/y_train.npy')
-    y_train = y_train + 128
 
     x_valid = np.load('./data/landscape/x_valid.npy')
     # y_valid = np.load('./data/landscape/y_valid.npy')
@@ -71,12 +70,14 @@ def main():
 
     if args.classification:
         criterion = nn.CrossEntropyLoss()
-        train_a = np.floor((y_train) / 13)[:,0,:,:]
-        train_b = np.floor((y_train) / 13)[:,1,:,:]
+        encode_layer = NNEncLayer()
+        # train_a = np.floor((y_train) / 13)[:,0,:,:]
+        # train_b = np.floor((y_train) / 13)[:,1,:,:]
         model_path = './checkpoints/landscape/classification_best_model.pth'
+        cp_path = './checkpoints/landscape/classification_best_model_'
     else:
         criterion = nn.MSELoss()
-        model_path = './checkpoints/landscape//regression_best_model.pth'
+        model_path = './checkpoints/landscape/regression_best_model.pth'
 
     def train(model):
         print("Beginning training ...")
@@ -100,17 +101,15 @@ def main():
                 # Classification Training
                 else:
                     batch_grey = torch.autograd.Variable(torch.from_numpy(x_train[i:i+args.batch_size]).float(), requires_grad = False)
-                    batch_a = torch.autograd.Variable(torch.from_numpy(train_a[i:i + args.batch_size]).long(), requires_grad=False)
-                    batch_b = torch.autograd.Variable(torch.from_numpy(train_b[i:i + args.batch_size]).long(), requires_grad=False)
+                    batch_ab = torch.autograd.Variable(torch.from_numpy(y_train[i:i + args.batch_size]).float(), requires_grad=False)
+                    encode, max_encode = encode_layer.forward(batch_ab)
+                    max_encode = torch.Tensor(max_encode).long()
                     if args.cuda:
                         batch_grey = batch_grey.cuda()
-                        batch_a = batch_a.cuda()
-                        batch_b = batch_b.cuda()
+                        max_encode = max_encode.cuda()
                     optimizer.zero_grad()
                     batch_output = model(batch_grey)
-                    loss_a = criterion(batch_output[0], batch_a)
-                    loss_b = criterion(batch_output[1], batch_b)
-                    loss = loss_a + loss_b
+                    loss = criterion(batch_output, max_encode)
                 loss.backward()
                 optimizer.step()
                 losses.append(loss.data.item())
@@ -122,9 +121,21 @@ def main():
                 torch.save(model.state_dict(), model_path)
                 best_loss = avg_loss
                 print('Best Training Model Saved')
+            if epoch % 5 == 0:
+                cp = cp_path
+                cp += '_%s.pth' % epoch
+                torch.save(model.state_dict(), cp)
+        plot.figure()
+        plot.plot(train_loss, "ro-", label="Train")
+        # plot.plot(valid_losses, "go-", label="Validation")
+        plot.legend()
+        plot.title("CE Loss")
+        plot.xlabel("Epochs")
+        plot.savefig("./curve/training_curve.png")
         return model
 
     def test(model):
+        print('Start Testing')
         model.eval()
         eval_loss_test = []
         for i in range(0, x_valid.shape[0], args.batch_size):
@@ -139,14 +150,14 @@ def main():
                     pred_rgb = cvt2RGB(test_L_input.data.numpy(), test_ab.data.numpy(), args.classification)
             else:
                 if args.cuda:
-                    test_ab = (test_ab[0].cpu().data.numpy(), test_ab[1].cpu().data.numpy())
-                    pred_rgb = cvt2RGB(test_L_input.cpu().data.numpy(), test_ab, args.classification)
+                    # test_ab = decode(test_L_input.cpu().data.numpy(), test_ab.cpu().detach())
+                    pred_rgb = decode(test_L_input.cpu().data.numpy(), test_ab.cpu().detach())
                 else:
                     test_ab = (test_ab[0].data.numpy(), test_ab[1].data.numpy())
                     pred_rgb = cvt2RGB(test_L_input.data.numpy(), test_ab, args.classification)
-            np.save('./pred_rgb_example.npy', pred_rgb)
+            np.save('./pred_rgb_example_new.npy', pred_rgb)
             gt_rgb = test_RGB_gt[i:i+args.batch_size]
-            np.save('./compare_example.npy', gt_rgb)
+            np.save('./compare_example_new.npy', gt_rgb)
             eval_loss = evaluation_metrics(pred_rgb, gt_rgb)
             eval_loss_test.append(eval_loss)
         eval_loss = np.mean(eval_loss_test)
