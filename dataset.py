@@ -98,8 +98,8 @@ def cvt2RGB(L, ab, classification = False, num_class = 10):
         L = np.rollaxis(L, 1, 4)
         pred_a = np.expand_dims(np.argmax(np.rollaxis(ab[0], 1, 4), axis=3), axis = 3)
         pred_b = np.expand_dims(np.argmax(np.rollaxis(ab[1], 1, 4), axis=3), axis = 3)
-        pred_a = pred_a * 26 + 13 - 128
-        pred_b = pred_b * 26 + 13 - 128
+        pred_a = pred_a * 13 + 7 - 128
+        pred_b = pred_b * 13 + 7 - 128
         Lab = np.concatenate((L, pred_a, pred_b), axis = 3)
     else:
         Lab = np.concatenate((L, ab), axis=1)

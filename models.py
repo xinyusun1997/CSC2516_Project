@@ -35,8 +35,8 @@ class simple(nn.Module):
             torch.nn.ReLU(True),
             torch.nn.LeakyReLU(negative_slope=0.2)
         )
-        self.classification_a = torch.nn.Conv2d(256, 10, kernel_size=1, padding=0, dilation=1, stride=1)
-        self.classification_b = torch.nn.Conv2d(256, 10, kernel_size=1, padding=0, dilation=1, stride=1)
+        self.classification_a = torch.nn.Conv2d(256, 20, kernel_size=1, padding=0, dilation=1, stride=1)
+        self.classification_b = torch.nn.Conv2d(256, 20, kernel_size=1, padding=0, dilation=1, stride=1)
 
         self.regression_out = torch.nn.Conv2d(128, 2, kernel_size=1, padding=0, dilation=1, stride=1)
 
