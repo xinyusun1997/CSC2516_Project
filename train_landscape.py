@@ -11,12 +11,12 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 from option import Options
-from utils import get_torch_vars, compute_loss, evaluation_metrics # run_validation_step
+from utils import get_torch_vars, compute_loss, evaluation_metrics, ssim_compute, psnr_compute # run_validation_step
 from loss import CrossEntropyLabelSmooth
 import time
 import numpy as np
 import cv2
-from models import simple, Zhang_model, NNEncLayer, decode
+from models import simple, NNEncLayer, decode, simple_skip_connection
 from dataset import *
 import pickle
 
@@ -29,13 +29,12 @@ def main():
 
     args.plot = False
     args.dataset = 'data'
-    args.model = 'UNet'
     args.batch_size = 4  # 128 #32
     args.loss = 'CrossEntropyLoss'
     args.backbone = 'resnet18'
 
-    args.lr = 5e-4  # 0.004  #0.01 #
-    args.epochs = 10  # 60#20 #60
+    args.lr = 1e-3  # 0.004  #0.01 #
+    args.epochs = 20  # 60#20 #60
     args.lr_step = 15
 
     args.basepath = './'
@@ -45,45 +44,42 @@ def main():
     args.eval = True
     args.from_npy = True
 
-    # plot
-    # if args.plot:
-    #     print('=>Enabling matplotlib for display:')
-    #     plot.ion()
-    #     plot.show()
-
-    if args.cuda:
-        torch.cuda.manual_seed(args.seed)
-
     print('Load data from saved .npy files...')
-    print('Note for landscape data, these are Lab type.')
+    print('For landscape data, these are Lab type.')
     x_train = np.load('./data/landscape/x_train.npy')
     y_train = np.load('./data/landscape/y_train.npy')
 
     x_valid = np.load('./data/landscape/x_valid.npy')
-    # y_valid = np.load('./data/landscape/y_valid.npy')
     test_RGB_gt = np.load('./data/landscape/rgb_valid.npy')
 
     # init the model
-    model = simple(args)
+    if args.skip_connection:
+        model = simple_skip_connection(args)
+    else:
+        model = simple(args)
     if args.cuda:
         model.cuda()
 
     if args.classification:
         criterion = nn.CrossEntropyLoss()
         encode_layer = NNEncLayer()
-        # train_a = np.floor((y_train) / 13)[:,0,:,:]
-        # train_b = np.floor((y_train) / 13)[:,1,:,:]
-        model_path = './checkpoints/landscape/classification_best_model.pth'
+        if args.skip_connection:
+            model_path = './checkpoints/landscape/classification_with_sc.pth'
+        else:
+            model_path = './checkpoints/landscape/classification_temp.pth'
         cp_path = './checkpoints/landscape/classification_best_model_'
     else:
         criterion = nn.MSELoss()
-        model_path = './checkpoints/landscape/regression_best_model.pth'
-
+        if args.skip_connection:
+            model_path = './checkpoints/landscape/regression_with_sc.pth'
+        else:
+            model_path = './checkpoints/landscape/regression.pth'
+        cp_path = './checkpoints/landscape/regression_best_model_'
     def train(model):
         print("Beginning training ...")
         train_loss = []
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-        best_loss = float('inf')
+        best_loss = -float('inf')
         for epoch in range(args.epochs):
             model.train()
             losses = []
@@ -113,31 +109,34 @@ def main():
                 loss.backward()
                 optimizer.step()
                 losses.append(loss.data.item())
+
+            (ssim_score, psnr) = test(model)
+
             avg_loss = np.mean(losses)
             train_loss.append(avg_loss)
             print('Epoch [%d/%d], Loss: %.4f' % (epoch+1, args.epochs, avg_loss))
 
-            if avg_loss < best_loss:
+            if ssim_score > best_loss:
                 torch.save(model.state_dict(), model_path)
-                best_loss = avg_loss
+                best_loss = ssim_score
                 print('Best Training Model Saved')
-            if epoch % 5 == 0:
-                cp = cp_path
-                cp += '_%s.pth' % epoch
-                torch.save(model.state_dict(), cp)
-        plot.figure()
-        plot.plot(train_loss, "ro-", label="Train")
-        # plot.plot(valid_losses, "go-", label="Validation")
-        plot.legend()
-        plot.title("CE Loss")
-        plot.xlabel("Epochs")
-        plot.savefig("./curve/training_curve.png")
+            cp = cp_path
+            cp += '_%s.pth' % epoch
+            torch.save(model.state_dict(), cp)
+        if args.plot:
+            plot.figure()
+            plot.plot(train_loss, "ro-", label="Train")
+            plot.legend()
+            plot.title("CE Loss")
+            plot.xlabel("Epochs")
+            plot.savefig("./curve/training_curve.png")
         return model
 
     def test(model):
         print('Start Testing')
         model.eval()
-        eval_loss_test = []
+        ssim_loss_test = []
+        psnr_loss_test = []
         for i in range(0, x_valid.shape[0], args.batch_size):
             test_L_input = torch.autograd.Variable(torch.from_numpy(x_valid[i:i+args.batch_size]).float(), requires_grad=False)
             if args.cuda:
@@ -158,13 +157,19 @@ def main():
             np.save('./pred_rgb_example_new.npy', pred_rgb)
             gt_rgb = test_RGB_gt[i:i+args.batch_size]
             np.save('./compare_example_new.npy', gt_rgb)
-            eval_loss = evaluation_metrics(pred_rgb, gt_rgb)
-            eval_loss_test.append(eval_loss)
-        eval_loss = np.mean(eval_loss_test)
-        print('Average Deviation Level in Color Saturation is %.4f ' % eval_loss)
+            # eval_loss = evaluation_metrics(pred_rgb, gt_rgb)
+            ssim_loss = ssim_compute(pred_rgb, gt_rgb)
+            ssim_loss_test.append(ssim_loss)
+            psnr_loss = psnr_compute(pred_rgb, gt_rgb)
+            psnr_loss_test.append(psnr_loss)
+        ssim_loss = np.mean(ssim_loss_test)
+        psnr_loss = np.mean(psnr_loss_test)
+        print('Average SSIM score is %.4f ' % ssim_loss)
+        print('Average PSNR is %.4f ' % psnr_loss)
+        return (ssim_loss, psnr_loss)
 
     if not args.eval:
-        model = train(model)
+        train(model)
     else:
         model.load_state_dict(torch.load(model_path))
         test(model)

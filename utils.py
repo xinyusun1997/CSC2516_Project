@@ -14,6 +14,7 @@ import matplotlib.pyplot as plot
 from dataset import *
 from skimage.transform import rescale, resize
 from skimage import color
+from skimage.measure import compare_psnr, compare_ssim
 
 
 def get_torch_vars(xs, ys, gpu=False):
@@ -70,34 +71,16 @@ def evaluation_metrics(output_RGB, gt_RGB):
     avg_diff = np.mean(eval_loss)
     return avg_diff
 
-# def run_validation_step(cnn, criterion, test_grey, test_rgb_cat, batch_size,
-#                         colours, plotpath=None, visualize=True, downsize_input=False):
-#     correct = 0.0
-#     total = 0.0
-#     losses = []
-#     num_colours = np.shape(colours)[0]
-#     for i, (xs, ys) in enumerate(get_batch(test_grey,
-#                                            test_rgb_cat,
-#                                            batch_size)):
-#         images, labels = get_torch_vars(xs, ys, args.gpu)
-#         outputs = cnn(images)
-#
-#         val_loss = compute_loss(criterion,
-#                                 outputs,
-#                                 labels,
-#                                 batch_size=args.batch_size,
-#                                 num_colours=num_colours)
-#         losses.append(val_loss.data.item())
-#
-#         _, predicted = torch.max(outputs.data, 1, keepdim=True)
-#         total += labels.size(0) * 32 * 32
-#         correct += (predicted == labels.data).sum()
-#
-#     if plotpath: # only plot if a path is provided
-#         plot(xs, ys, predicted.cpu().numpy(), colours,
-#              plotpath, visualize=visualize, compare_bilinear=downsize_input)
-#
-#     val_loss = np.mean(losses)
-#     val_acc = 100 * correct / total
-#     return val_loss, val_acc
-#
+def ssim_compute(output_RGB, gt_RGB):
+    eval_loss = []
+    for i in range(0, gt_RGB.shape[0]):
+        eval_loss.append(compare_ssim(output_RGB[i], gt_RGB[i], data_range=1.0, multichannel=True))
+    avg_diff = np.mean(eval_loss)
+    return avg_diff
+
+def psnr_compute(output_RGB, gt_RGB):
+    eval_loss = []
+    for i in range(0, gt_RGB.shape[0]):
+        eval_loss.append(compare_psnr(gt_RGB[i], output_RGB[i], data_range=1.0))
+    avg_diff = np.mean(eval_loss)
+    return avg_diff
