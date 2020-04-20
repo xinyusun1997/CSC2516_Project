@@ -2,6 +2,8 @@
 Github only have the code and the checkpoints cause github doesn't allow to upload files size larger than 100MB.
 ###Dependence
 pytorch, keras, opencv, PIL, skimage, sklearn, numpy, tqdm
+
+Train and test with CUDA, haven't tested on CPU.
 ##Below requires the test data
 Test data can be downloaded from 
 
