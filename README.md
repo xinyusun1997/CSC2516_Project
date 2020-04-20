@@ -28,4 +28,4 @@ or
 
     python train_cifar.py
 
-This will return the SSIM score.
+This will return the SSIM score. Default is regression with skip connection model.
