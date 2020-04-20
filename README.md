@@ -1,5 +1,5 @@
 # CSC2516_Project
-Github only have the code cause github don't allow to upload files size larger than 100MB.
+Github only have the code and the checkpoints cause github don't allow to upload files size larger than 100MB.
 The code submit in markus will contain the testing data.
 ### Settings
 Default setting is use Regression with skip connection models.
