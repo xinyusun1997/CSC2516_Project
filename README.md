@@ -21,11 +21,11 @@ Can change to classification models in the following two files by setting args.c
 Each file is for one dataset.
 
 ### Evaluate with pretrained models
-To evaluate the pre-trained models:
+To evaluate the pre-trained models. Default is (regression with skip connection) model.
 
     python train_landscape.py
 or
 
     python train_cifar.py
 
-This will return the SSIM score. Default is regression with skip connection model.
+This will return the SSIM score. 
