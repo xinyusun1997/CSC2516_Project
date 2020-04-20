@@ -1,6 +1,11 @@
 # CSC2516_Project
-Github only have the code and the checkpoints cause github don't allow to upload files size larger than 100MB.
-The code submit in markus will contain the testing data.
+Github only have the code and the checkpoints cause github doesn't allow to upload files size larger than 100MB.
+##Below requires the test data
+Test data can be downloaded from 
+
+https://drive.google.com/file/d/1MpkVXZvtxkKfn0HB33FKk8eiQ-M7rWIa/view?usp=sharing 
+
+and put the ./data folder into the root place.
 ### Settings
 Default setting is use Regression with skip connection models.
 Can change to classification models in the following two files by setting args.classification = True or try the models with no skip connection by setting args.skip_connection = False.
