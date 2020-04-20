@@ -12,7 +12,6 @@ from torch.autograd import Variable
 
 from option import Options
 from utils import get_torch_vars, compute_loss, evaluation_metrics, ssim_compute, psnr_compute # run_validation_step
-from loss import CrossEntropyLabelSmooth
 import time
 import numpy as np
 import cv2
@@ -33,24 +32,25 @@ def main():
     args.loss = 'CrossEntropyLoss'
     args.backbone = 'resnet18'
 
-    args.lr = 1e-3  # 0.004  #0.01 #
-    args.epochs = 20  # 60#20 #60
+    args.lr = 1e-4  # 0.004  #0.01 #
+    args.epochs = 60  # 60#20 #60
     args.lr_step = 15
 
     args.basepath = './'
 
-    args.classification = True
-    args.skip_connection = False
+    args.classification = False
+    args.skip_connection = True
     args.eval = True
     args.from_npy = True
 
     print('Load data from saved .npy files...')
     print('For landscape data, these are Lab type.')
-    x_train = np.load('./data/landscape/x_train.npy')
-    y_train = np.load('./data/landscape/y_train.npy')
-
+    if not args.eval:
+        x_train = np.load('./data/landscape/x_train.npy')
+        y_train = np.load('./data/landscape/y_train.npy')
     x_valid = np.load('./data/landscape/x_valid.npy')
     test_RGB_gt = np.load('./data/landscape/rgb_valid.npy')
+    print('Finish Data Loading')
 
     # init the model
     if args.skip_connection:
@@ -66,15 +66,15 @@ def main():
         if args.skip_connection:
             model_path = './checkpoints/landscape/classification_with_sc.pth'
         else:
-            model_path = './checkpoints/landscape/classification_temp.pth'
-        cp_path = './checkpoints/landscape/classification_best_model_'
+            model_path = './checkpoints/landscape/classification.pth'
     else:
         criterion = nn.MSELoss()
         if args.skip_connection:
             model_path = './checkpoints/landscape/regression_with_sc.pth'
         else:
             model_path = './checkpoints/landscape/regression.pth'
-        cp_path = './checkpoints/landscape/regression_best_model_'
+
+
     def train(model):
         print("Beginning training ...")
         train_loss = []
@@ -120,9 +120,7 @@ def main():
                 torch.save(model.state_dict(), model_path)
                 best_loss = ssim_score
                 print('Best Training Model Saved')
-            cp = cp_path
-            cp += '_%s.pth' % epoch
-            torch.save(model.state_dict(), cp)
+
         if args.plot:
             plot.figure()
             plot.plot(train_loss, "ro-", label="Train")
@@ -154,9 +152,7 @@ def main():
                 else:
                     test_ab = (test_ab[0].data.numpy(), test_ab[1].data.numpy())
                     pred_rgb = cvt2RGB(test_L_input.data.numpy(), test_ab, args.classification)
-            np.save('./pred_rgb_example_new.npy', pred_rgb)
             gt_rgb = test_RGB_gt[i:i+args.batch_size]
-            np.save('./compare_example_new.npy', gt_rgb)
             # eval_loss = evaluation_metrics(pred_rgb, gt_rgb)
             ssim_loss = ssim_compute(pred_rgb, gt_rgb)
             ssim_loss_test.append(ssim_loss)
