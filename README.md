@@ -5,7 +5,7 @@ Github only have the code and the checkpoints cause github doesn't allow to uplo
 pytorch, keras, opencv, PIL, skimage, sklearn, numpy, tqdm
 
 Train and test with CUDA, haven't tested on CPU.
-##Below requires the test data
+## Below requires the test data
 Test data can be downloaded from 
 
 https://drive.google.com/file/d/1MpkVXZvtxkKfn0HB33FKk8eiQ-M7rWIa/view?usp=sharing 
